@@ -37,10 +37,17 @@ thread. Don't design for multiple users, chats or parallel threads.
   (`e2e/bot.ts` starts it on an empty session per test).
 - Never change a test only to make it pass; tests describe user-facing contracts.
 
-## Env
+## Config and env
 
-Variables live in `.env` (gitignored, loaded by scripts); never read or print it.
-First E2E setup: `pnpm e2e:login`.
+The only deployment is wave-os, in two copies (two agents). It configures each
+with a `Config` (`src/config.ts`): passed to `startAgent(config)` from
+`src/index.ts`, or else the default export of `house-agents.config.ts`
+(gitignored) in the working directory, which `src/main.ts` and `pnpm dev` use.
+New options go there, not into new environment variables. E2E runs the agent
+through `e2e/agent.ts`.
+
+Secrets stay in the environment: variables live in `.env` (gitignored, loaded by
+scripts); never read or print it. First E2E setup: `pnpm e2e:login`.
 
 ## Commits
 

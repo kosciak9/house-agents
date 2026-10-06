@@ -2,9 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Credential, CredentialStore } from "@earendil-works/pi-ai";
 
-// E2E points this at its own file, so test logins never touch real accounts.
-const CREDENTIALS_FILE =
-	process.env.AGENT_CREDENTIALS_FILE ?? "state/auth.json";
+import { config, stateFile } from "../config.ts";
+
+// E2E keeps it outside its throwaway state, so tests sign in with the real
+// accounts; the login test points it at its own file instead.
+const CREDENTIALS_FILE = config().credentialsFile ?? stateFile("auth.json");
 
 type Credentials = Record<string, Credential>;
 

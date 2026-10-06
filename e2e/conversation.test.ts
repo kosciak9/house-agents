@@ -74,7 +74,6 @@ const color = COLORS[Math.floor(Math.random() * COLORS.length)] ?? COLORS[0];
 const VOICE_FILE = path.resolve("e2e/fixtures/question.ogg");
 
 const directory = mkdtempSync(path.join(tmpdir(), "e2e-conversation-"));
-const sessionFile = path.join(directory, "session.sqlite");
 const imageFile = path.join(directory, "color.png");
 
 let runningBot: RunningBot | undefined;
@@ -89,7 +88,7 @@ const say = (text: string) =>
 
 before(async () => {
 	writeFileSync(imageFile, solidPng(color.rgb, 256));
-	runningBot = await startBot({ sessionFile, prompt: PROMPT });
+	runningBot = await startBot({ stateDir: directory, prompt: PROMPT });
 	client = await connectTestUser();
 	bot = botUsername();
 });
@@ -150,7 +149,7 @@ test("conversation: persona, photo, voice, restart and reset", {
 			matches: isTick,
 			timeoutMs: 2 * MINUTE,
 		});
-		runningBot = await startBot({ sessionFile, prompt: PROMPT });
+		runningBot = await startBot({ stateDir: directory, prompt: PROMPT });
 		await ticked;
 	});
 

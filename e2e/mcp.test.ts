@@ -1,5 +1,5 @@
 // Contract: the agent uses the tools of the MCP servers its deployment lists
-// in MCP_SERVERS, over stdio, over HTTP with an API key header, and over HTTP
+// in its config, over stdio, over HTTP with an API key header, and over HTTP
 // with OAuth, and only the tools each server allows. For the OAuth server the
 // bot itself sends the user its authorization link; the user approves and
 // sends the address the browser ends up on with /mcp_auth, after which its
@@ -39,7 +39,6 @@ const oauthWord = `CHRONIONE-${runId}`;
 const apiKey = `key-${runId}`;
 
 const directory = mkdtempSync(path.join(tmpdir(), "e2e-mcp-"));
-const sessionFile = path.join(directory, "session.sqlite");
 const visitFile = path.join(directory, "visits.txt");
 
 let httpServer: RunningMcpServer;
@@ -50,7 +49,7 @@ let bot: string;
 
 const startMcpBot = () =>
 	startBot({
-		sessionFile,
+		stateDir: directory,
 		mcpServers: {
 			remote: {
 				url: httpServer.url,

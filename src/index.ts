@@ -1,33 +1,13 @@
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { type Config, readConfigFile, useConfig } from "./config.ts";
 
-import { harness, root } from "./agent/harness.ts";
-import { memory, sessionLimits } from "./agent/memory.ts";
-import { registry } from "./agent/registry.ts";
-import { oauthFile, servers } from "./mcp/config.ts";
-import { startMcp } from "./mcp/start.ts";
-import { keepSessions } from "./memory/keeper.ts";
-import { sendAuthorizationLink } from "./telegram/mcp-auth.ts";
-import { forwardToTelegram, startTelegram } from "./telegram/start.ts";
+export type { Config, McpServer } from "./config.ts";
 
-await forwardToTelegram();
-// Resume only once forwarding is attached, so answers of runs interrupted by
-// the last shutdown still reach the chat.
-harness.resume();
-
-await keepSessions({
-	harness,
-	conversation: root,
-	limits: sessionLimits,
-	endSession: (conversation) =>
-		memory.endSession(conversation, BACKGROUND_CONTEXT),
-});
-
-// Tools are in place before the first message is taken.
-const mcp = await startMcp({
-	registry,
-	servers,
-	oauthFile,
-	onAuthorizationNeeded: sendAuthorizationLink,
-});
-
-await startTelegram({ mcp });
+/**
+ * Runs the agent until the process ends, as `config` describes or, without
+ * one, as `house-agents.config.ts` in the working directory does.
+ */
+export const startAgent = async (config?: Config): Promise<void> => {
+	useConfig(config ?? (await readConfigFile()));
+	// Every other module reads the config as it loads, so they load only now.
+	await import("./start.ts");
+};

@@ -1,10 +1,8 @@
+import { config } from "../config.ts";
+
 // Speech to text through a Whisper server with the OpenAI transcription API,
-// e.g. whisper.cpp's `whisper-server`; the deployment points WHISPER_API_URL
-// at its `/v1/audio/transcriptions` endpoint.
-const whisperUrl = process.env.WHISPER_API_URL;
-if (!whisperUrl) {
-	throw new Error("WHISPER_API_URL is required");
-}
+// e.g. whisper.cpp's `whisper-server`, at the deployment's `whisperUrl`.
+const whisperUrl = config().whisperUrl;
 
 const TIMEOUT_MS = 5 * 60_000;
 

@@ -10,8 +10,8 @@ export const DEFAULT_PROMPT =
 	"Gdy prośba dokładnie określa formę odpowiedzi, trzymasz się jej dosłownie.";
 
 export type RunningBot = {
-	/** The bot's session; pass it to the next `startBot` to test a restart. */
-	sessionFile: string;
+	/** The bot's state; pass it to the next `startBot` to test a restart. */
+	stateDir: string;
 	stop: () => Promise<void>;
 };
 
@@ -46,43 +46,43 @@ const stopProcess = async (child: ChildProcess): Promise<void> => {
 };
 
 /**
- * Runs the real bot (`src/index.ts`) as a separate process against the test
- * environment, as the agent `prompt` describes. Without `sessionFile` it
- * starts from an empty session that is deleted on `stop`. It uses no MCP
- * servers unless `mcpServers` lists them; their OAuth tokens are kept next to
- * the session, so they survive a restart too. It signs in to model providers
- * with the real credentials unless `credentialsFile` names other ones.
+ * Runs the real bot (`e2e/agent.ts`) as a separate process against the test
+ * environment, as the agent `prompt` describes. Without `stateDir` it starts
+ * from an empty state that is deleted
+ * on `stop`. It uses no MCP servers unless `mcpServers` lists them; their
+ * OAuth tokens are kept in the state, so they survive a restart too. It signs
+ * in to model providers with the real credentials unless `credentialsFile`
+ * names other ones.
  */
 export const startBot = async ({
-	sessionFile,
+	stateDir,
 	prompt = DEFAULT_PROMPT,
 	mcpServers = {},
-	credentialsFile,
+	credentialsFile = path.resolve("state/auth.json"),
 }: {
-	sessionFile?: string;
+	stateDir?: string;
 	prompt?: string;
-	/** The MCP_SERVERS configuration, as an object. */
+	/** The config's `mcpServers`. */
 	mcpServers?: Record<string, unknown>;
 	credentialsFile?: string;
 } = {}): Promise<RunningBot> => {
 	const ownDirectory =
-		sessionFile === undefined
+		stateDir === undefined
 			? mkdtempSync(path.join(tmpdir(), "e2e-bot-"))
 			: undefined;
-	const file = sessionFile ?? path.join(ownDirectory ?? "", "session.sqlite");
+	const directory = stateDir ?? ownDirectory ?? "";
 
-	const child = spawn(process.execPath, ["--import", "tsx", "src/index.ts"], {
-		env: {
-			...process.env,
-			TELEGRAM_ENVIRONMENT: "test",
-			AGENT_SESSION_FILE: file,
-			AGENT_PROMPT: prompt,
-			MCP_SERVERS: JSON.stringify(mcpServers),
-			MCP_OAUTH_FILE: path.join(path.dirname(file), "mcp-oauth.json"),
-			...(credentialsFile && { AGENT_CREDENTIALS_FILE: credentialsFile }),
-		},
-		stdio: ["ignore", "pipe", "pipe"],
-	});
+	const config = {
+		prompt,
+		mcpServers,
+		stateDir: directory,
+		credentialsFile,
+	};
+	const child = spawn(
+		process.execPath,
+		["--import", "tsx", "e2e/agent.ts", JSON.stringify(config)],
+		{ stdio: ["ignore", "pipe", "pipe"] },
+	);
 
 	// The reporter (`e2e/reporter.ts`) logs this output and shows it when a
 	// test fails.
@@ -108,5 +108,5 @@ export const startBot = async ({
 		throw error;
 	}
 
-	return { sessionFile: file, stop };
+	return { stateDir: directory, stop };
 };

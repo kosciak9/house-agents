@@ -1,6 +1,9 @@
-// The MCP servers the agent may use come from its deployment as JSON in
-// MCP_SERVERS: `{ "<name>": <server>, ... }`. Each server lists the `tools` the
-// agent may call; every other tool of that server stays hidden.
+import { config, stateFile } from "../config.ts";
+
+// The MCP servers the agent may use come from its deployment's
+// `mcpServers`: `{ "<name>": <server>, ... }`. Each server lists the `tools`
+// the agent may call; every other tool of that server stays hidden. The config
+// is checked here again, since nothing type-checks it before it runs.
 
 export type StdioServer = {
 	type: "stdio";
@@ -90,7 +93,7 @@ const parseOAuth = (value: unknown, field: string): OAuthClient | undefined => {
 };
 
 const parseServer = (name: string, value: unknown): ServerConfig => {
-	const field = `MCP_SERVERS.${name}`;
+	const field = `config.mcpServers.${name}`;
 	if (!isRecord(value)) throw new Error(`${field} must be an object`);
 
 	const tools = stringArray(value.tools, `${field}.tools`);
@@ -128,11 +131,9 @@ const parseServer = (name: string, value: unknown): ServerConfig => {
 	throw new Error(`${field} needs a "url" or a "command"`);
 };
 
-const parseServers = (json: string | undefined): Map<string, ServerConfig> => {
-	if (!json) return new Map();
-
-	const value: unknown = JSON.parse(json);
-	if (!isRecord(value)) throw new Error("MCP_SERVERS must be a JSON object");
+const parseServers = (value: unknown): Map<string, ServerConfig> => {
+	if (value === undefined) return new Map();
+	if (!isRecord(value)) throw new Error("config.mcpServers must be an object");
 
 	return new Map(
 		Object.entries(value).map(([name, server]) => [
@@ -142,7 +143,7 @@ const parseServers = (json: string | undefined): Map<string, ServerConfig> => {
 	);
 };
 
-export const servers = parseServers(process.env.MCP_SERVERS);
+export const servers = parseServers(config().mcpServers);
 
 /** Where OAuth clients and tokens of the servers are kept. */
-export const oauthFile = process.env.MCP_OAUTH_FILE ?? "state/mcp-oauth.json";
+export const oauthFile = stateFile("mcp-oauth.json");

@@ -1,0 +1,101 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+// Everything the deployment decides comes in one `Config`, which it passes to
+// `startAgent()` (`src/index.ts`) in code or exports as the default of
+// `house-agents.config.ts`. Secrets stay in the environment; the deployment
+// reads the ones the config needs from `process.env` itself.
+
+export type McpServer = {
+	/** The tools the agent may call; every other tool stays hidden. */
+	tools: string[];
+} & (
+	| {
+			command: string;
+			args?: string[];
+			env?: Record<string, string>;
+			cwd?: string;
+	  }
+	| {
+			url: string;
+			/** Sent with every request, e.g. `Authorization: Bearer <key>`. */
+			headers?: Record<string, string>;
+			/**
+			 * `true` registers the client dynamically; an object may name a
+			 * pre-registered client, its redirect URL and the scope to ask for.
+			 */
+			oauth?:
+				| boolean
+				| {
+						clientId?: string;
+						clientSecret?: string;
+						scope?: string;
+						redirectUrl?: string;
+				  };
+	  }
+);
+
+export type Config = {
+	/** Who the agent is: the system prompt that opens its conversation. */
+	prompt: string;
+	telegram: {
+		/** The one chat the bot serves; it ignores every other one. */
+		chatId: number;
+		/** "test" is Telegram's separate test environment, used by E2E. */
+		environment?: "prod" | "test";
+	};
+	/** Whisper's `/v1/audio/transcriptions` endpoint, e.g. whisper.cpp's. */
+	whisperUrl: string;
+	/** The MCP servers the agent may use, by name. */
+	mcpServers?: Record<string, McpServer>;
+	/** Where the agent keeps its session and tokens; `state` by default. */
+	stateDir?: string;
+	/** Model provider logins; `<stateDir>/auth.json` by default. */
+	credentialsFile?: string;
+};
+
+const CONFIG_FILE = "house-agents.config.ts";
+
+/** The default export of `house-agents.config.ts` in the working directory. */
+export const readConfigFile = async (): Promise<Config> => {
+	const file = path.resolve(CONFIG_FILE);
+	if (!existsSync(file)) {
+		throw new Error(
+			`No config: pass one to startAgent() or create ${CONFIG_FILE}`,
+		);
+	}
+	return (await import(pathToFileURL(file).href)).default;
+};
+
+let current: Config | undefined;
+
+/** Sets the config once, before any module that reads it is loaded. */
+export const useConfig = (value: Config): void => {
+	if (current) throw new Error("The config is already set");
+	if (typeof value !== "object" || value === null) {
+		throw new Error("The config must be an object");
+	}
+	if (typeof value.prompt !== "string" || !value.prompt) {
+		throw new Error("config.prompt is required");
+	}
+	if (!Number.isSafeInteger(value.telegram?.chatId)) {
+		throw new Error("config.telegram.chatId must be an integer chat id");
+	}
+	const environment = value.telegram.environment ?? "prod";
+	if (environment !== "prod" && environment !== "test") {
+		throw new Error('config.telegram.environment must be "prod" or "test"');
+	}
+	if (typeof value.whisperUrl !== "string" || !value.whisperUrl) {
+		throw new Error("config.whisperUrl is required");
+	}
+	current = value;
+};
+
+export const config = (): Config => {
+	if (!current) throw new Error("The config is not set yet");
+	return current;
+};
+
+export const stateFile = (name: string): string =>
+	path.join(config().stateDir ?? "state", name);

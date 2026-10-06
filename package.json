@@ -23,7 +23,7 @@
 	},
 	"scripts": {
 		"check": "biome check . && tsc",
-		"dev": "tsx --env-file-if-exists=.env src/index.ts",
+		"dev": "tsx --env-file-if-exists=.env src/main.ts",
 		"e2e:login": "tsx --env-file-if-exists=.env e2e/telegram/login.ts",
 		"e2e": "tsx e2e/run.ts",
 		"e2e:smoke": "tsx e2e/run.ts smoke"
