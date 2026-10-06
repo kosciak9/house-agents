@@ -5,7 +5,10 @@ House assistant on `@earendil-works/pi-durable`, talking through Telegram (gramm
 ## Code
 
 - No classes: functions plus module singletons; feature folders in `src/`.
-- Scheduler stays inside pi-durable (tasks, docs, `conversation.submit`) and never imports Telegram.
+- pi-durable is the core; build around it following its architecture. Use its
+  primitives (tasks, documents, inbox, `conversation.submit`) instead of parallel
+  runtimes, stores or queues. Channels like Telegram are adapters at the edge;
+  the core never depends on them.
 
 ## Verify
 
