@@ -1,8 +1,8 @@
-// Contract: an MCP server that authorizes through OAuth gets the user its
-// authorization link in the chat; the user approves and pastes the address
-// the browser ends up on back into the chat, after which the server's tools
-// work, also after a full restart without asking again. Nothing of the bot is
-// reachable from outside.
+// Contract: for an MCP server that authorizes through OAuth the bot itself
+// sends the user its authorization link; the user approves and sends the
+// address the browser ends up on with /mcp_auth, after which the server's
+// tools work, also after a full restart without asking again. Nothing of the
+// bot is reachable from outside.
 // Runs its own bot processes on one session, next to a test MCP server
 // (`e2e/mcp/server.ts`) that is its own OAuth authorization server and
 // approves at once, so fetching the link stands in for the user's consent.
@@ -97,14 +97,14 @@ test("mcp oauth: link in chat → pasted redirect → tools work, also after res
 		},
 	);
 
-	await t.test(
-		"pasting the redirect address authorizes the server",
-		async () => {
-			await sendAndWaitForReply(client, bot, redirect, {
-				timeoutMs: 2 * MINUTE,
-			});
-		},
-	);
+	await t.test("/mcp_auth with the redirect address authorizes", async () => {
+		const reply = await sendAndWaitForReply(
+			client,
+			bot,
+			`/mcp_auth ${redirect}`,
+		);
+		assert.match(reply, /„secure” autoryzowany/);
+	});
 
 	await t.test("the server's tools work", async () => {
 		assert.match(await askForWord(), new RegExp(word));

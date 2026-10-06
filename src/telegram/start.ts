@@ -1,10 +1,12 @@
 import { harness, root } from "../agent/harness.ts";
+import type { Mcp } from "../mcp/start.ts";
 import { bot, chatId, environment } from "./bot.ts";
 import {
 	handlePhotoMessage,
 	handleTextMessage,
 	handleVoiceMessage,
 } from "./inbound.ts";
+import { AUTH_COMMAND, createAuthCommand } from "./mcp-auth.ts";
 import { forwardAssistantMessages } from "./outbound.ts";
 
 /** Sends every answer of the conversation to the chat. */
@@ -12,8 +14,10 @@ export const forwardToTelegram = (): Promise<void> =>
 	forwardAssistantMessages(harness, root.id);
 
 /** Starts taking messages from the chat. */
-export const startTelegram = async (): Promise<void> => {
+export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 	const chat = bot.filter((ctx) => ctx.chat?.id === chatId);
+	// Commands are for the bot itself; they never reach the agent.
+	chat.command(AUTH_COMMAND, createAuthCommand(mcp));
 	chat.on("message:text", handleTextMessage);
 	chat.on("message:photo", handlePhotoMessage);
 	chat.on("message:voice", handleVoiceMessage);

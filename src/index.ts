@@ -1,9 +1,8 @@
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-
-import { harness, root } from "./agent/harness.ts";
+import { harness } from "./agent/harness.ts";
 import { registry } from "./agent/registry.ts";
 import { oauthFile, servers } from "./mcp/config.ts";
 import { startMcp } from "./mcp/start.ts";
+import { sendAuthorizationLink } from "./telegram/mcp-auth.ts";
 import { forwardToTelegram, startTelegram } from "./telegram/start.ts";
 
 await forwardToTelegram();
@@ -12,16 +11,11 @@ await forwardToTelegram();
 harness.resume();
 
 // Tools are in place before the first message is taken.
-await startMcp({
+const mcp = await startMcp({
 	registry,
 	servers,
 	oauthFile,
-	notify: async (text) => {
-		await root.submit(
-			{ type: "input", content: text, whenBusy: "followUp" },
-			BACKGROUND_CONTEXT,
-		);
-	},
+	onAuthorizationNeeded: sendAuthorizationLink,
 });
 
-await startTelegram();
+await startTelegram({ mcp });

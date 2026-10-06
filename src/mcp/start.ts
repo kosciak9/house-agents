@@ -1,4 +1,4 @@
-import { type TSchema, Type } from "@earendil-works/pi-ai";
+import type { TSchema } from "@earendil-works/pi-ai";
 import {
 	defineExtension,
 	defineTool,
@@ -16,8 +16,6 @@ import type {
 
 import type { ServerConfig } from "./config.ts";
 import { createOAuthProvider, openTokenStore } from "./oauth.ts";
-
-const AUTHORIZE_TOOL = "mcp_authorize";
 
 const CALL_TIMEOUT_MS = 5 * 60_000;
 
@@ -58,6 +56,16 @@ const toResult = (result: CallToolResult): ToolExecutionResult => {
 	return { content, isError: result.isError === true };
 };
 
+export type Mcp = {
+	/**
+	 * Finishes the authorization the address the browser ended up on belongs
+	 * to; resolves with the server's name.
+	 */
+	finishAuthorization: (redirect: URL) => Promise<string>;
+	/** Servers waiting for the user to authorize them, with their links. */
+	pendingAuthorizations: () => { server: string; url: URL }[];
+};
+
 const errorResult = (text: string): ToolExecutionResult => ({
 	content: [{ type: "text", text }],
 	isError: true,
@@ -68,22 +76,22 @@ const errorResult = (text: string): ToolExecutionResult => ({
  * extension `mcp:<server>`. A server that cannot be reached is left out, so the
  * agent still runs without it.
  *
- * A server that needs OAuth asks the user, through `notify`, to open its
- * authorization link. Nothing listens for the way back: the user pastes the
- * address the browser ends up on into the chat, the agent hands it to
- * `mcp_authorize`, and the server's tools arrive.
+ * A server that needs OAuth hands its authorization link to
+ * `onAuthorizationNeeded`, past the agent. Nothing listens for the way back:
+ * whoever shows the link takes the address the browser ends up on and passes
+ * it to `finishAuthorization`, and the server's tools arrive.
  */
 export const startMcp = async ({
 	registry,
 	servers,
 	oauthFile,
-	notify,
+	onAuthorizationNeeded,
 }: {
 	registry: Registry;
 	servers: ReadonlyMap<string, ServerConfig>;
 	oauthFile: string;
-	notify: (text: string) => Promise<void>;
-}): Promise<void> => {
+	onAuthorizationNeeded: (server: string, url: URL) => Promise<void>;
+}): Promise<Mcp> => {
 	const store = openTokenStore(oauthFile);
 	// Of servers whose authorization was started: where the user authorizes,
 	// which server each flow's `state` belongs to, and the transport to finish.
@@ -91,12 +99,10 @@ export const startMcp = async ({
 	const states = new Map<string, string>();
 	const transports = new Map<string, StreamableHTTPClientTransport>();
 
-	const authorizationMessage = (name: string): string =>
-		`MCP server "${name}" needs the user's authorization before its tools ` +
-		"work. Send the user this link, exactly as it is: " +
-		`${authorizationUrls.get(name)?.href} . After approving, the browser ` +
-		"opens a page that does not load; ask the user to paste that page's full " +
-		`address into the chat, then pass it to ${AUTHORIZE_TOOL}.`;
+	const askForAuthorization = async (name: string): Promise<void> => {
+		const url = authorizationUrls.get(name);
+		if (url) await onAuthorizationNeeded(name, url);
+	};
 
 	const createTransport = (name: string, config: ServerConfig) => {
 		if (config.type === "stdio") {
@@ -152,7 +158,11 @@ export const startMcp = async ({
 						error instanceof UnauthorizedError &&
 						authorizationUrls.has(name)
 					) {
-						return errorResult(authorizationMessage(name));
+						await askForAuthorization(name);
+						return errorResult(
+							`MCP server "${name}" needs the user's authorization again; ` +
+								"the user has been sent the link.",
+						);
 					}
 					throw error;
 				}
@@ -190,7 +200,7 @@ export const startMcp = async ({
 			await client.connect(createTransport(name, config));
 		} catch (error) {
 			if (error instanceof UnauthorizedError && authorizationUrls.has(name)) {
-				await notify(authorizationMessage(name));
+				await askForAuthorization(name);
 				return;
 			}
 			throw error;
@@ -204,7 +214,6 @@ export const startMcp = async ({
 		);
 	};
 
-	// Finishes the flow the pasted redirect address belongs to.
 	const finishAuthorization = async (redirect: URL): Promise<string> => {
 		const error = redirect.searchParams.get("error");
 		if (error) throw new Error(`The server refused authorization: ${error}`);
@@ -214,10 +223,7 @@ export const startMcp = async ({
 		const transport = name && transports.get(name);
 		const config = name && servers.get(name);
 		if (!name || !code || !transport || !config) {
-			throw new Error(
-				"This address belongs to no pending authorization; " +
-					"the user has to start again from the latest link.",
-			);
+			throw new Error("No pending authorization matches this address");
 		}
 
 		await transport.finishAuth(code);
@@ -226,33 +232,6 @@ export const startMcp = async ({
 		await connectServer(name, config);
 		return name;
 	};
-
-	const authorizeTool = defineTool({
-		name: AUTHORIZE_TOOL,
-		description:
-			"Finish authorizing an MCP server with the address the user's browser " +
-			"ended up on after approving it.",
-		parameters: Type.Object({
-			redirect_url: Type.String({
-				description: "The full address the user pasted, unchanged.",
-			}),
-		}),
-		execute: async (args) => {
-			const name = await finishAuthorization(new URL(args.redirect_url));
-			return {
-				content: [
-					{ type: "text", text: `Authorized "${name}"; its tools are ready.` },
-				],
-			};
-		},
-	});
-
-	const usesOAuth = [...servers.values()].some(
-		(config) => config.type === "http" && config.oauth,
-	);
-	if (usesOAuth) {
-		registry.install(defineExtension({ name: "mcp", tools: [authorizeTool] }));
-	}
 
 	await Promise.all(
 		[...servers].map(async ([name, config]) => {
@@ -263,4 +242,10 @@ export const startMcp = async ({
 			}
 		}),
 	);
+
+	return {
+		finishAuthorization,
+		pendingAuthorizations: () =>
+			[...authorizationUrls].map(([server, url]) => ({ server, url })),
+	};
 };
