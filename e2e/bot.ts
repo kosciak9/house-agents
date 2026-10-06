@@ -51,8 +51,7 @@ const stopProcess = async (child: ChildProcess): Promise<void> => {
  * starts from an empty session that is deleted on `stop`. It uses no MCP
  * servers unless `mcpServers` lists them; their OAuth tokens are kept next to
  * the session, so they survive a restart too. It signs in to model providers
- * with the real credentials unless `credentialsFile` names other ones. Set
- * E2E_VERBOSE=1 to see the bot's output.
+ * with the real credentials unless `credentialsFile` names other ones.
  */
 export const startBot = async ({
 	sessionFile,
@@ -85,10 +84,14 @@ export const startBot = async ({
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 
+	// The reporter (`e2e/reporter.ts`) logs this output and shows it when a
+	// test fails.
 	const output: string[] = [];
 	const collect = (chunk: Buffer) => {
 		output.push(chunk.toString());
-		if (process.env.E2E_VERBOSE) process.stderr.write(`[bot] ${chunk}`);
+		for (const line of chunk.toString().split("\n")) {
+			if (line.trim()) process.stdout.write(`[bot] ${line}\n`);
+		}
 	};
 	child.stdout.on("data", collect);
 	child.stderr.on("data", collect);
