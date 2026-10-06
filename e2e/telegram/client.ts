@@ -91,43 +91,100 @@ export const messageText = (message: Message): string => {
 	return "";
 };
 
+type MessageFilter = (text: string) => boolean;
+
+const anyMessage: MessageFilter = () => true;
+
+const botChatId = async (client: tdl.Client, bot: string): Promise<number> =>
+	(await client.invoke({ _: "searchPublicChat", username: bot })).id;
+
+// Calls `listener` with the text of every new message the bot sends to the
+// chat; returns the unsubscribe function.
+const onBotMessage = (
+	client: tdl.Client,
+	chatId: number,
+	listener: (text: string) => void,
+): (() => void) => {
+	const onUpdate = (update: Update) => {
+		if (update._ !== "updateNewMessage") return;
+		const { message } = update;
+		if (message.chat_id !== chatId || message.is_outgoing) return;
+		listener(messageText(message));
+	};
+	client.on("update", onUpdate);
+	return () => client.off("update", onUpdate);
+};
+
+const nextBotMessage = (
+	client: tdl.Client,
+	chatId: number,
+	matches: MessageFilter,
+	timeoutMs: number,
+): Promise<string> =>
+	new Promise((resolve, reject) => {
+		const finish = (settle: () => void) => {
+			clearTimeout(timer);
+			unsubscribe();
+			settle();
+		};
+		const unsubscribe = onBotMessage(client, chatId, (text) => {
+			if (matches(text)) finish(() => resolve(text));
+		});
+		const timer = setTimeout(
+			() =>
+				finish(() =>
+					reject(new Error(`No matching bot message within ${timeoutMs} ms`)),
+				),
+			timeoutMs,
+		);
+	});
+
+/** Resolves with the next message from the bot that `matches`. */
+export const waitForBotMessage = async (
+	client: tdl.Client,
+	bot: string,
+	{ matches = anyMessage, timeoutMs = 60_000 } = {},
+): Promise<string> =>
+	nextBotMessage(client, await botChatId(client, bot), matches, timeoutMs);
+
+/** Rejects if the bot sends a message that `matches` within `durationMs`. */
+export const expectNoBotMessage = async (
+	client: tdl.Client,
+	bot: string,
+	{
+		matches = anyMessage,
+		durationMs,
+	}: { matches?: MessageFilter; durationMs: number },
+): Promise<void> => {
+	const chatId = await botChatId(client, bot);
+	return new Promise((resolve, reject) => {
+		const unsubscribe = onBotMessage(client, chatId, (text) => {
+			if (!matches(text)) return;
+			clearTimeout(timer);
+			unsubscribe();
+			reject(new Error(`Unexpected bot message: ${text}`));
+		});
+		const timer = setTimeout(() => {
+			unsubscribe();
+			resolve();
+		}, durationMs);
+	});
+};
+
+/** Sends `text` to the bot and resolves with its next message that `matches`. */
 export const sendAndWaitForReply = async (
 	client: tdl.Client,
 	bot: string,
 	text: string,
-	timeoutMs = 60_000,
+	{ matches = anyMessage, timeoutMs = 60_000 } = {},
 ): Promise<string> => {
-	const chat = await client.invoke({ _: "searchPublicChat", username: bot });
-
-	const reply = new Promise<string>((resolve, reject) => {
-		const finish = (settle: () => void) => {
-			clearTimeout(timer);
-			client.off("update", onUpdate);
-			settle();
-		};
-
-		const onUpdate = (update: Update) => {
-			if (update._ !== "updateNewMessage") return;
-			const { message } = update;
-			if (message.chat_id !== chat.id || message.is_outgoing) return;
-			finish(() => resolve(messageText(message)));
-		};
-
-		const timer = setTimeout(
-			() =>
-				finish(() =>
-					reject(new Error(`No reply from @${bot} within ${timeoutMs} ms`)),
-				),
-			timeoutMs,
-		);
-
-		// Listen before sending so a fast reply cannot be missed.
-		client.on("update", onUpdate);
-	});
+	const chatId = await botChatId(client, bot);
+	// Listen before sending so a fast reply cannot be missed.
+	const reply = nextBotMessage(client, chatId, matches, timeoutMs);
 
 	await client.invoke({
 		_: "sendMessage",
-		chat_id: chat.id,
+		chat_id: chatId,
 		input_message_content: {
 			_: "inputMessageText",
 			text: { _: "formattedText", text },

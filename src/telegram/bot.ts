@@ -14,7 +14,7 @@ if (!Number.isSafeInteger(parsedChatId)) {
 export const chatId = parsedChatId;
 
 // "test" points the bot at Telegram's separate test environment, used by E2E.
-const environment = process.env.TELEGRAM_ENVIRONMENT ?? "prod";
+export const environment = process.env.TELEGRAM_ENVIRONMENT ?? "prod";
 if (environment !== "prod" && environment !== "test") {
 	throw new Error('TELEGRAM_ENVIRONMENT must be "prod" or "test"');
 }

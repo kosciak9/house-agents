@@ -1,0 +1,26 @@
+# AGENTS.md
+
+House assistant on `@earendil-works/pi-durable`, talking through Telegram (grammY).
+
+## Code
+
+- No classes: functions plus module singletons; feature folders in `src/`.
+- Scheduler stays inside pi-durable (tasks, docs, `conversation.submit`) and never imports Telegram.
+
+## Verify
+
+- After every change: `pnpm check` (biome + tsc) and `pnpm e2e:smoke`.
+- After a larger set of changes: `pnpm e2e:test` (full E2E, several minutes).
+- Stop `pnpm dev` first; two processes on one bot token conflict.
+- No unit or mocked tests: E2E drives the real bot in Telegram's test environment
+  (`e2e/bot.ts` starts it on an empty session per test).
+- Never change a test only to make it pass; tests describe user-facing contracts.
+
+## Env
+
+Variables live in `.env` (gitignored, loaded by scripts); never read or print it.
+First E2E setup: `pnpm e2e:login`.
+
+## Commits
+
+Conventional Commits.

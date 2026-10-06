@@ -185,6 +185,9 @@ importers:
       '@biomejs/biome':
         specifier: ^2.5.15
         version: 2.5.15
+      '@types/node':
+        specifier: ^26.6.4
+        version: 26.6.4
       prebuilt-tdlib:
         specifier: ^0.1008067.0
         version: 0.1008067.0

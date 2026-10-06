@@ -1,5 +1,5 @@
 import { harness, root } from "../agent/harness.ts";
-import { bot, chatId } from "./bot.ts";
+import { bot, chatId, environment } from "./bot.ts";
 import { handleTextMessage } from "./inbound.ts";
 import { forwardAssistantMessages } from "./outbound.ts";
 
@@ -16,5 +16,11 @@ export const startTelegram = async (): Promise<void> => {
 		console.error("Telegram error:", error);
 	});
 
-	await bot.start();
+	await bot.start({
+		// In the test environment, messages sent while no bot was running belong
+		// to an earlier test and must not leak into the next one.
+		drop_pending_updates: environment === "test",
+		// E2E waits for this line to know the bot is ready.
+		onStart: (me) => console.log(`Bot @${me.username} started`),
+	});
 };

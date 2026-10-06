@@ -5,7 +5,8 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { models } from "./models.ts";
 import { registry } from "./registry.ts";
 
-const SESSION_FILE = "state/session.sqlite";
+// E2E points this at a fresh file so every test starts from an empty session.
+const SESSION_FILE = process.env.AGENT_SESSION_FILE ?? "state/session.sqlite";
 
 export const harness = await Harness.open(
 	await openNodeSqliteStorage(SESSION_FILE),

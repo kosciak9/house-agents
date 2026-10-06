@@ -6,6 +6,7 @@
 	"packageManager": "pnpm@12.9.1",
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.15",
+		"@types/node": "^26.6.4",
 		"prebuilt-tdlib": "^0.1008067.0",
 		"tdl": "^8.1.0",
 		"tsx": "^4.23.15",
@@ -19,8 +20,10 @@
 		"grammy": "^1.46.0"
 	},
 	"scripts": {
+		"check": "biome check . && tsc",
 		"dev": "tsx --env-file-if-exists=.env src/index.ts",
-		"e2e": "tsx --env-file-if-exists=.env --test e2e/*.test.ts",
-		"e2e:login": "tsx --env-file-if-exists=.env e2e/telegram/login.ts"
+		"e2e:login": "tsx --env-file-if-exists=.env e2e/telegram/login.ts",
+		"e2e:smoke": "tsx --env-file-if-exists=.env --test e2e/text-reply.test.ts",
+		"e2e:test": "tsx --env-file-if-exists=.env --test --test-concurrency=1 e2e/*.test.ts"
 	}
 }
