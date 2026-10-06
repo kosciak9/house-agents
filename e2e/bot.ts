@@ -48,15 +48,19 @@ const stopProcess = async (child: ChildProcess): Promise<void> => {
 /**
  * Runs the real bot (`src/index.ts`) as a separate process against the test
  * environment, as the agent `prompt` describes. Without `sessionFile` it
- * starts from an empty session that is deleted on `stop`. Set E2E_VERBOSE=1 to
- * see the bot's output.
+ * starts from an empty session that is deleted on `stop`. It uses no MCP
+ * servers unless `mcpServers` lists them. Set E2E_VERBOSE=1 to see the bot's
+ * output.
  */
 export const startBot = async ({
 	sessionFile,
 	prompt = DEFAULT_PROMPT,
+	mcpServers = {},
 }: {
 	sessionFile?: string;
 	prompt?: string;
+	/** The MCP_SERVERS configuration, as an object. */
+	mcpServers?: Record<string, unknown>;
 } = {}): Promise<RunningBot> => {
 	const ownDirectory =
 		sessionFile === undefined
@@ -70,6 +74,7 @@ export const startBot = async ({
 			TELEGRAM_ENVIRONMENT: "test",
 			AGENT_SESSION_FILE: file,
 			AGENT_PROMPT: prompt,
+			MCP_SERVERS: JSON.stringify(mcpServers),
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 	});
