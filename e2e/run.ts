@@ -1,5 +1,5 @@
-// `pnpm e2e:test [name ...] [--grep <pattern>]`: runs the E2E files named
-// (`memory` or `e2e/memory.test.ts`; all by default) one at a time, with the
+// `pnpm e2e [name ...] [--grep <pattern>]`: runs the E2E files named
+// (`cron` or `e2e/cron.test.ts`; all by default) one at a time, with the
 // compact reporter of `e2e/reporter.ts`. Runs from every checkout share the
 // test bot, so a run waits for any other one to finish first.
 import { spawn } from "node:child_process";

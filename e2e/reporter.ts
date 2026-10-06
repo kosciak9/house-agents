@@ -1,4 +1,4 @@
-// Test reporter of `pnpm e2e:test`: one line per test, the reason of each
+// Test reporter of `pnpm e2e`: one line per test, the reason of each
 // failure, and a summary. Everything a test file prints (the bot's output
 // among it) goes to tmp/e2e/<file>.log and is shown only when the file fails.
 // E2E_VERBOSE=1 also prints it live.

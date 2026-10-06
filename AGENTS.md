@@ -16,15 +16,18 @@ thread. Don't design for multiple users, chats or parallel threads.
 
 ## Verify
 
-- After every change: `pnpm check` (biome + tsc) and `pnpm e2e:smoke`.
-- After a larger set of changes: `pnpm e2e:test` (full E2E, several minutes,
-  inside `devenv shell` for the voice test).
-- One file or test: `pnpm e2e:test memory` (`e2e/memory.test.ts`), several
-  names at once, `--grep <pattern>` for test names.
-- Run these as they are: no redirects, `grep` or `tail` needed. The output is
-  one line per test, why each failure failed, and the output of the bot behind
-  each failing file; full logs go to `tmp/e2e/<file>.log`. `E2E_VERBOSE=1`
-  streams them live.
+- After every change: `pnpm check` (biome + tsc) and `pnpm e2e <name>` for
+  the E2E files the change touches (`pnpm e2e conversation` runs
+  `e2e/conversation.test.ts`; `--grep <pattern>` filters test names).
+- After a larger set of changes: `pnpm e2e` (all files).
+- Run these as they are, in the foreground: no redirects, `grep`, `tail` or
+  extra shells. The output is one line per test, why each failure failed, and
+  the output of the bot behind each failing file; full logs go to
+  `tmp/e2e/<file>.log`. `E2E_VERBOSE=1` streams them live.
+- Keep the suite short: every bot start and every real wait costs time. Add a
+  step to an existing chain (`e2e/conversation.test.ts` is one conversation
+  from start to /reset) rather than a new file, and never test the same
+  contract twice.
 - Every checkout shares one test bot: a run waits for another to finish
   (`state/e2e.lock`). Stop `pnpm dev` first; two processes on one bot token
   conflict (`409: Conflict` in the bot output).
