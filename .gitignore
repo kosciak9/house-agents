@@ -1,0 +1,13 @@
+node_modules/
+dist/
+
+.direnv/
+.devenv/
+
+.env
+.env.*
+!.env.example
+
+state/
+tmp/
+*.log
