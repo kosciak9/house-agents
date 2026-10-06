@@ -6,6 +6,12 @@ import {
 	handleTextMessage,
 	handleVoiceMessage,
 } from "./inbound.ts";
+import {
+	handleCancelCommand,
+	handleLoginCommand,
+	handleLogoutCommand,
+	takeLoginAnswer,
+} from "./login.ts";
 import { AUTH_COMMAND, createAuthCommand } from "./mcp-auth.ts";
 import { forwardAssistantMessages } from "./outbound.ts";
 
@@ -18,7 +24,10 @@ export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 	const chat = bot.filter((ctx) => ctx.chat?.id === chatId);
 	// Commands are for the bot itself; they never reach the agent.
 	chat.command(AUTH_COMMAND, createAuthCommand(mcp));
-	chat.on("message:text", handleTextMessage);
+	chat.command("login", handleLoginCommand);
+	chat.command("logout", handleLogoutCommand);
+	chat.command("cancel", handleCancelCommand);
+	chat.on("message:text", takeLoginAnswer, handleTextMessage);
 	chat.on("message:photo", handlePhotoMessage);
 	chat.on("message:voice", handleVoiceMessage);
 	bot.catch((error) => {

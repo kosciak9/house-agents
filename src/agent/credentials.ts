@@ -2,7 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Credential, CredentialStore } from "@earendil-works/pi-ai";
 
-const CREDENTIALS_FILE = "state/auth.json";
+// E2E points this at its own file, so test logins never touch real accounts.
+const CREDENTIALS_FILE =
+	process.env.AGENT_CREDENTIALS_FILE ?? "state/auth.json";
 
 type Credentials = Record<string, Credential>;
 

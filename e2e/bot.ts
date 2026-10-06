@@ -50,18 +50,21 @@ const stopProcess = async (child: ChildProcess): Promise<void> => {
  * environment, as the agent `prompt` describes. Without `sessionFile` it
  * starts from an empty session that is deleted on `stop`. It uses no MCP
  * servers unless `mcpServers` lists them; their OAuth tokens are kept next to
- * the session, so they survive a restart too. Set E2E_VERBOSE=1 to see the
- * bot's output.
+ * the session, so they survive a restart too. It signs in to model providers
+ * with the real credentials unless `credentialsFile` names other ones. Set
+ * E2E_VERBOSE=1 to see the bot's output.
  */
 export const startBot = async ({
 	sessionFile,
 	prompt = DEFAULT_PROMPT,
 	mcpServers = {},
+	credentialsFile,
 }: {
 	sessionFile?: string;
 	prompt?: string;
 	/** The MCP_SERVERS configuration, as an object. */
 	mcpServers?: Record<string, unknown>;
+	credentialsFile?: string;
 } = {}): Promise<RunningBot> => {
 	const ownDirectory =
 		sessionFile === undefined
@@ -77,6 +80,7 @@ export const startBot = async ({
 			AGENT_PROMPT: prompt,
 			MCP_SERVERS: JSON.stringify(mcpServers),
 			MCP_OAUTH_FILE: path.join(path.dirname(file), "mcp-oauth.json"),
+			...(credentialsFile && { AGENT_CREDENTIALS_FILE: credentialsFile }),
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 	});
