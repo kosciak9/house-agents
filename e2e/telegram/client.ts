@@ -5,7 +5,11 @@ import path from "node:path";
 
 import { getTdjson } from "prebuilt-tdlib";
 import * as tdl from "tdl";
-import type { message as Message, Update } from "tdlib-types";
+import type {
+	InputMessageContent$Input as InputMessageContent,
+	message as Message,
+	Update,
+} from "tdlib-types";
 
 // TDLib keeps the logged-in test user in this directory.
 export const LOCAL_DATABASE_DIR = "state/e2e-tdlib";
@@ -171,25 +175,62 @@ export const expectNoBotMessage = async (
 	});
 };
 
-/** Sends `text` to the bot and resolves with its next message that `matches`. */
-export const sendAndWaitForReply = async (
+const sendContentAndWaitForReply = async (
 	client: tdl.Client,
 	bot: string,
-	text: string,
+	content: InputMessageContent,
 	{ matches = anyMessage, timeoutMs = 60_000 } = {},
 ): Promise<string> => {
 	const chatId = await botChatId(client, bot);
 	// Listen before sending so a fast reply cannot be missed.
 	const reply = nextBotMessage(client, chatId, matches, timeoutMs);
+	// If sending fails, that error is the one to report, not the reply timeout.
+	reply.catch(() => {});
 
 	await client.invoke({
 		_: "sendMessage",
 		chat_id: chatId,
-		input_message_content: {
-			_: "inputMessageText",
-			text: { _: "formattedText", text },
-		},
+		input_message_content: content,
 	});
 
 	return reply;
 };
+
+/** Sends `text` to the bot and resolves with its next message that `matches`. */
+export const sendAndWaitForReply = (
+	client: tdl.Client,
+	bot: string,
+	text: string,
+	options: { matches?: MessageFilter; timeoutMs?: number } = {},
+): Promise<string> =>
+	sendContentAndWaitForReply(
+		client,
+		bot,
+		{ _: "inputMessageText", text: { _: "formattedText", text } },
+		options,
+	);
+
+/**
+ * Sends the image file at `photoPath` as a photo with an optional `caption`
+ * and resolves with the bot's next message that `matches`.
+ */
+export const sendPhotoAndWaitForReply = (
+	client: tdl.Client,
+	bot: string,
+	photoPath: string,
+	caption: string,
+	options: { matches?: MessageFilter; timeoutMs?: number } = {},
+): Promise<string> =>
+	sendContentAndWaitForReply(
+		client,
+		bot,
+		{
+			_: "inputMessagePhoto",
+			photo: {
+				_: "inputPhoto",
+				photo: { _: "inputFileLocal", path: photoPath },
+			},
+			caption: { _: "formattedText", text: caption },
+		},
+		options,
+	);
