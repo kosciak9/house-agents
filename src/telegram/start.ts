@@ -3,6 +3,7 @@ import type { Mcp } from "../mcp/start.ts";
 import { bot, chatId, environment } from "./bot.ts";
 import {
 	handlePhotoMessage,
+	handleResetCommand,
 	handleTextMessage,
 	handleVoiceMessage,
 } from "./inbound.ts";
@@ -27,6 +28,7 @@ export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 	chat.command("login", handleLoginCommand);
 	chat.command("logout", handleLogoutCommand);
 	chat.command("cancel", handleCancelCommand);
+	chat.command("reset", handleResetCommand);
 	chat.on("message:text", takeLoginAnswer, handleTextMessage);
 	chat.on("message:photo", handlePhotoMessage);
 	chat.on("message:voice", handleVoiceMessage);

@@ -1,6 +1,6 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { UserInput } from "@earendil-works/pi-durable";
-import type { Context, Filter } from "grammy";
+import type { CommandContext, Context, Filter } from "grammy";
 
 import { root } from "../agent/harness.ts";
 import { transcribe } from "../voice/whisper.ts";
@@ -72,4 +72,13 @@ export const handleVoiceMessage = async (
 	if (!text) return;
 
 	await submitInput(message_id, text);
+};
+
+// Starts a new context; the transcript stays in storage and the long-term
+// memory is read afresh at the next request.
+export const handleResetCommand = async (
+	ctx: CommandContext<Context>,
+): Promise<void> => {
+	await root.reset(undefined, BACKGROUND_CONTEXT);
+	await ctx.react("👍");
 };
