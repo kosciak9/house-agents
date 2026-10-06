@@ -4,6 +4,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+/** The agent's prompt; tests describe their agent here, never in the repo. */
+export const DEFAULT_PROMPT =
+	"Jesteś asystentem w teście E2E. Odpowiadasz zwięźle po polsku. " +
+	"Gdy prośba dokładnie określa formę odpowiedzi, trzymasz się jej dosłownie.";
+
 export type RunningBot = {
 	/** The bot's session; pass it to the next `startBot` to test a restart. */
 	sessionFile: string;
@@ -42,13 +47,16 @@ const stopProcess = async (child: ChildProcess): Promise<void> => {
 
 /**
  * Runs the real bot (`src/index.ts`) as a separate process against the test
- * environment. Without `sessionFile` it starts from an empty session that is
- * deleted on `stop`. Set E2E_VERBOSE=1 to see the bot's output.
+ * environment, as the agent `prompt` describes. Without `sessionFile` it
+ * starts from an empty session that is deleted on `stop`. Set E2E_VERBOSE=1 to
+ * see the bot's output.
  */
 export const startBot = async ({
 	sessionFile,
+	prompt = DEFAULT_PROMPT,
 }: {
 	sessionFile?: string;
+	prompt?: string;
 } = {}): Promise<RunningBot> => {
 	const ownDirectory =
 		sessionFile === undefined
@@ -61,6 +69,7 @@ export const startBot = async ({
 			...process.env,
 			TELEGRAM_ENVIRONMENT: "test",
 			AGENT_SESSION_FILE: file,
+			AGENT_PROMPT: prompt,
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 	});
