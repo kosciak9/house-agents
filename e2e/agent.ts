@@ -7,6 +7,8 @@ const overrides: Partial<Config> = JSON.parse(process.argv[2] ?? "{}");
 
 await startAgent({
 	prompt: DEFAULT_PROMPT,
+	// Cheaper and faster than what the deployment talks on.
+	model: { provider: "openai-codex", modelId: "gpt-6-luna" },
 	telegram: {
 		chatId: Number(process.env.TELEGRAM_CHAT_ID),
 		environment: "test",

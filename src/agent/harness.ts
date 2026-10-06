@@ -12,16 +12,21 @@ export const harness = await Harness.open(
 	BACKGROUND_CONTEXT,
 );
 
-const MODEL = { provider: "openai-codex", modelId: "gpt-6-luna" };
-
-// Who the agent is comes from its deployment, never from this repo: one string
-// that opens the conversation as its system prompt.
-const PROMPT = config().prompt;
+// Who the agent is and what it runs on come from its deployment, never from
+// this repo: the prompt opens the conversation as its system prompt.
+const { prompt, model } = config();
+if (!models.getModel(model.provider, model.modelId)) {
+	throw new Error(`config.model ${model.provider}/${model.modelId} is unknown`);
+}
 
 // `root()` applies the agent only when it creates the conversation; configure
 // it on every start so model and prompt changes also reach an existing session.
 export const root = await harness.root(BACKGROUND_CONTEXT);
 await root.configure(
-	{ model: MODEL, instructions: PROMPT },
+	{
+		model: { provider: model.provider, modelId: model.modelId },
+		thinkingLevel: model.thinkingLevel ?? null,
+		instructions: prompt,
+	},
 	BACKGROUND_CONTEXT,
 );

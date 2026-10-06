@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 
 // Everything the deployment decides comes in one `Config`, which it passes to
 // `startAgent()` (`src/index.ts`) in code or exports as the default of
@@ -39,6 +40,13 @@ export type McpServer = {
 export type Config = {
 	/** Who the agent is: the system prompt that opens its conversation. */
 	prompt: string;
+	/** The model the agent talks on, e.g. `openai-codex` `gpt-6.1-sol`. */
+	model: {
+		provider: string;
+		modelId: string;
+		/** "off" by default. */
+		thinkingLevel?: ModelThinkingLevel;
+	};
 	telegram: {
 		/** The one chat the bot serves; it ignores every other one. */
 		chatId: number;
@@ -78,6 +86,12 @@ export const useConfig = (value: Config): void => {
 	}
 	if (typeof value.prompt !== "string" || !value.prompt) {
 		throw new Error("config.prompt is required");
+	}
+	if (
+		typeof value.model?.provider !== "string" ||
+		typeof value.model.modelId !== "string"
+	) {
+		throw new Error("config.model needs a provider and a modelId");
 	}
 	if (!Number.isSafeInteger(value.telegram?.chatId)) {
 		throw new Error("config.telegram.chatId must be an integer chat id");
