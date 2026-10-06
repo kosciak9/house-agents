@@ -175,29 +175,6 @@ export const expectNoBotMessage = async (
 	});
 };
 
-/** Resolves once a message of the chat with the bot is deleted for good. */
-export const waitForDeletedMessage = async (
-	client: tdl.Client,
-	bot: string,
-	timeoutMs = 30_000,
-): Promise<void> => {
-	const chatId = await botChatId(client, bot);
-	return new Promise((resolve, reject) => {
-		const onUpdate = (update: Update) => {
-			if (update._ !== "updateDeleteMessages") return;
-			if (update.chat_id !== chatId || !update.is_permanent) return;
-			clearTimeout(timer);
-			client.off("update", onUpdate);
-			resolve();
-		};
-		client.on("update", onUpdate);
-		const timer = setTimeout(() => {
-			client.off("update", onUpdate);
-			reject(new Error(`No message deleted within ${timeoutMs} ms`));
-		}, timeoutMs);
-	});
-};
-
 const sendContentAndWaitForReply = async (
 	client: tdl.Client,
 	bot: string,

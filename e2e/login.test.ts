@@ -1,11 +1,12 @@
 // Contract: the user signs in to model providers from the chat, past the
-// agent: /login lists them, /login <provider> asks its questions in the chat
-// and stores the credential, /logout forgets it, /cancel stops a login.
-// Runs its own bot process on an empty session with its own, empty credentials,
-// so no real account is touched. Signs in with an API key (OpenCode Go): the
-// subscriptions' OAuth needs a real account.
+// agent: /login lists them with their status, /login <provider> asks the
+// provider's questions in the chat, /cancel stops it and /logout forgets a
+// stored credential.
+// Runs its own bot process on an empty session with its own credentials, so no
+// real account is touched. Goes only as far as a login gets without one: the
+// subscriptions' device codes need a real account to approve.
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -17,11 +18,10 @@ import {
 	botUsername,
 	connectTestUser,
 	sendAndWaitForReply,
-	waitForDeletedMessage,
 } from "./telegram/client.ts";
 
 const runId = Date.now().toString(36).toUpperCase();
-const apiKey = `sk-test-${runId}`;
+const xaiKey = `xai-test-${runId}`;
 
 const directory = mkdtempSync(path.join(tmpdir(), "e2e-login-"));
 const credentialsFile = path.join(directory, "auth.json");
@@ -30,13 +30,17 @@ let runningBot: RunningBot;
 let client: Client;
 let bot: string;
 
-// The status line of OpenCode Go in the /login list.
-const opencodeStatus = async (): Promise<string> => {
+// The status line of xAI in the /login list.
+const xaiStatus = async (): Promise<string> => {
 	const list = await sendAndWaitForReply(client, bot, "/login");
-	return list.split("\n").find((line) => line.startsWith("opencode-go")) ?? "";
+	return list.split("\n").find((line) => line.startsWith("xai ")) ?? "";
 };
 
 before(async () => {
+	writeFileSync(
+		credentialsFile,
+		JSON.stringify({ xai: { type: "api_key", key: xaiKey } }),
+	);
 	runningBot = await startBot({ credentialsFile });
 	client = await connectTestUser();
 	bot = botUsername();
@@ -48,41 +52,34 @@ after(async () => {
 	rmSync(directory, { recursive: true, force: true });
 });
 
-test("login: sign in, sign out and cancel from the chat", async (t) => {
-	await t.test("/login lists the providers", async () => {
+test("login: status, questions in the chat, cancel and logout", async (t) => {
+	await t.test("/login lists the providers with their status", async () => {
 		const list = await sendAndWaitForReply(client, bot, "/login");
-		for (const provider of ["openai-codex", "opencode-go", "xai"]) {
-			assert.match(list, new RegExp(`^${provider} `, "m"));
-		}
+		assert.match(list, /^openai-codex .*—$/m);
+		assert.match(await xaiStatus(), /✅ stored credential/);
 	});
 
-	await t.test("/login <provider> asks for the key and stores it", async () => {
+	await t.test("/login <provider> asks its questions in the chat", async () => {
 		const question = await sendAndWaitForReply(
 			client,
 			bot,
-			"/login opencode-go",
+			"/login openai-codex",
 		);
-		assert.match(question, /API key/i);
+		assert.match(question, /^1\. .*\n2\. /m);
 
-		// The key does not stay in the chat.
-		const deleted = waitForDeletedMessage(client, bot);
-		const done = await sendAndWaitForReply(client, bot, apiKey);
-		assert.match(done, /Zalogowano/);
-		await deleted;
-		assert.match(readFileSync(credentialsFile, "utf8"), new RegExp(apiKey));
-		assert.match(await opencodeStatus(), /✅ stored credential/);
+		const retry = await sendAndWaitForReply(client, bot, "9");
+		assert.match(retry, /odpowiedz numerem/);
 	});
 
-	await t.test("/logout forgets it", async () => {
-		const reply = await sendAndWaitForReply(client, bot, "/logout opencode-go");
-		assert.match(reply, /Wylogowano/);
-		assert.doesNotMatch(readFileSync(credentialsFile, "utf8"), /sk-test/);
-		assert.doesNotMatch(await opencodeStatus(), /stored credential/);
-	});
-
-	await t.test("/cancel stops a login", async () => {
-		await sendAndWaitForReply(client, bot, "/login opencode-go");
+	await t.test("/cancel stops the login", async () => {
 		const reply = await sendAndWaitForReply(client, bot, "/cancel");
 		assert.match(reply, /przerwane/);
+	});
+
+	await t.test("/logout forgets the credential", async () => {
+		const reply = await sendAndWaitForReply(client, bot, "/logout xai");
+		assert.match(reply, /Wylogowano/);
+		assert.doesNotMatch(readFileSync(credentialsFile, "utf8"), /xai-test/);
+		assert.doesNotMatch(await xaiStatus(), /stored credential/);
 	});
 });
