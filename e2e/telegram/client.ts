@@ -196,6 +196,22 @@ const sendContentAndWaitForReply = async (
 	return reply;
 };
 
+/** Sends `text` to the bot without waiting for a reply, e.g. a command. */
+export const sendToBot = async (
+	client: tdl.Client,
+	bot: string,
+	text: string,
+): Promise<void> => {
+	await client.invoke({
+		_: "sendMessage",
+		chat_id: await botChatId(client, bot),
+		input_message_content: {
+			_: "inputMessageText",
+			text: { _: "formattedText", text },
+		},
+	});
+};
+
 /** Sends `text` to the bot and resolves with its next message that `matches`. */
 export const sendAndWaitForReply = (
 	client: tdl.Client,

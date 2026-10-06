@@ -3,6 +3,7 @@ import type { UserInput } from "@earendil-works/pi-durable";
 import type { CommandContext, Context, Filter } from "grammy";
 
 import { root } from "../agent/harness.ts";
+import { memory } from "../agent/memory.ts";
 import { transcribe } from "../voice/whisper.ts";
 import { downloadFile } from "./files.ts";
 import { startProgress, stopProgress } from "./progress.ts";
@@ -74,11 +75,11 @@ export const handleVoiceMessage = async (
 	await submitInput(message_id, text);
 };
 
-// Starts a new context; the transcript stays in storage and the long-term
-// memory is read afresh at the next request.
+// Ends the session: it becomes a line of long-term memory and a new context
+// starts.
 export const handleResetCommand = async (
 	ctx: CommandContext<Context>,
 ): Promise<void> => {
-	await root.reset(undefined, BACKGROUND_CONTEXT);
+	await memory.endSession(root, BACKGROUND_CONTEXT);
 	await ctx.react("👍");
 };
