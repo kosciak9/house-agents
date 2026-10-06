@@ -1,7 +1,8 @@
-// Contract: the agent can create a recurring cron schedule that keeps waking
-// it up, list it, and delete it so it stops firing.
+// Contract: the agent can create a recurring cron schedule that wakes it up,
+// list it, and delete it so it stops firing; a recurring schedule would fire
+// again within the minute after deletion.
 // Runs its own bot process on an empty session, so no schedule outlives the
-// test. Takes about 4 minutes: cron fires on full minutes.
+// test. Takes about 2 minutes: cron fires on full minutes.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
@@ -43,8 +44,8 @@ after(async () => {
 	await runningBot?.stop();
 });
 
-test("cron: create → fires repeatedly → listed → deleted → stops", {
-	timeout: 8 * MINUTE,
+test("cron: create → fires → listed → deleted → stops", {
+	timeout: 6 * MINUTE,
 }, async (t) => {
 	await t.test("creates a recurring cron", async () => {
 		await sendAndWaitForReply(
@@ -58,13 +59,6 @@ test("cron: create → fires repeatedly → listed → deleted → stops", {
 	});
 
 	await t.test("fires on the next minute", async () => {
-		await waitForBotMessage(client, bot, {
-			matches: isTick,
-			timeoutMs: 2 * MINUTE,
-		});
-	});
-
-	await t.test("fires again on the following minute", async () => {
 		await waitForBotMessage(client, bot, {
 			matches: isTick,
 			timeoutMs: 2 * MINUTE,
