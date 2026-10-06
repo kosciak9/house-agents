@@ -1,10 +1,5 @@
-import type { TSchema } from "@earendil-works/pi-ai";
-import {
-	defineExtension,
-	defineTool,
-	type Registry,
-	type ToolExecutionResult,
-} from "@earendil-works/pi-durable";
+import type { CodemodeTool } from "@earendil-works/pi-codemode";
+import { defineExtension, type Registry } from "@earendil-works/pi-durable";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -14,46 +9,35 @@ import type {
 	Tool as McpTool,
 } from "@modelcontextprotocol/sdk/types.js";
 
+import { createCodemodeTool } from "./codemode.ts";
 import type { ServerConfig } from "./config.ts";
 import { createOAuthProvider, openTokenStore } from "./oauth.ts";
 
 const CALL_TIMEOUT_MS = 5 * 60_000;
 
-// Model tool names allow only these characters, up to 64 of them.
-const toolName = (server: string, tool: string): string =>
-	`${server}__${tool}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+const toolName = (server: string, tool: string): string => `${server}__${tool}`;
 
-type Content = NonNullable<ToolExecutionResult["content"]>[number];
-
-const toContent = (part: CallToolResult["content"][number]): Content => {
+const partText = (part: CallToolResult["content"][number]): string => {
 	switch (part.type) {
 		case "text":
-			return { type: "text", text: part.text };
-		case "image":
-			return { type: "image", data: part.data, mimeType: part.mimeType };
+			return part.text;
 		case "resource":
 			return "text" in part.resource
-				? { type: "text", text: part.resource.text }
-				: { type: "text", text: `[binary resource ${part.resource.uri}]` };
+				? part.resource.text
+				: `[binary resource ${part.resource.uri}]`;
 		case "resource_link":
-			return { type: "text", text: `${part.name}: ${part.uri}` };
+			return `${part.name}: ${part.uri}`;
 		default:
-			return { type: "text", text: `[${part.type} content omitted]` };
+			return `[${part.type} content omitted]`;
 	}
 };
 
-const toResult = (result: CallToolResult): ToolExecutionResult => {
-	const content =
-		result.content.length > 0
-			? result.content.map(toContent)
-			: [
-					{
-						type: "text" as const,
-						text: JSON.stringify(result.structuredContent ?? {}),
-					},
-				];
-
-	return { content, isError: result.isError === true };
+// What a script gets back: the structured result when the tool declares one,
+// its text otherwise.
+const scriptValue = (result: CallToolResult): unknown => {
+	const text = result.content.map(partText).join("\n");
+	if (result.isError) throw new Error(text || "The tool failed");
+	return result.structuredContent ?? text;
 };
 
 export type Mcp = {
@@ -66,15 +50,10 @@ export type Mcp = {
 	pendingAuthorizations: () => { server: string; url: URL }[];
 };
 
-const errorResult = (text: string): ToolExecutionResult => ({
-	content: [{ type: "text", text }],
-	isError: true,
-});
-
 /**
- * Connects to every server and offers each one's allowed tools as the
- * extension `mcp:<server>`. A server that cannot be reached is left out, so the
- * agent still runs without it.
+ * Connects to every server and offers their allowed tools to the agent's
+ * `codemode` tool (extension `mcp`). A server that cannot be reached is left
+ * out, so the agent still runs without it.
  *
  * A server that needs OAuth hands its authorization link to
  * `onAuthorizationNeeded`, past the agent. Nothing listens for the way back:
@@ -137,37 +116,48 @@ export const startMcp = async ({
 		return transport;
 	};
 
-	const defineMcpTool = (name: string, client: Client, tool: McpTool) =>
-		defineTool({
-			name: toolName(name, tool.name),
-			description: tool.description ?? tool.title ?? tool.name,
-			// MCP tools describe their input as JSON Schema, which TypeBox validates.
-			parameters: tool.inputSchema as TSchema,
-			execute: async (args) => {
-				try {
-					return toResult(
-						(await client.callTool(
-							{ name: tool.name, arguments: args as Record<string, unknown> },
-							undefined,
-							{ timeout: CALL_TIMEOUT_MS },
-						)) as CallToolResult,
+	const sandboxTool = (
+		name: string,
+		client: Client,
+		tool: McpTool,
+	): CodemodeTool => ({
+		name: toolName(name, tool.name),
+		description: tool.description ?? tool.title ?? tool.name,
+		inputSchema: tool.inputSchema,
+		outputSchema: tool.outputSchema ?? { type: "string" },
+		execute: async (args, { signal }) => {
+			try {
+				return scriptValue(
+					(await client.callTool(
+						{ name: tool.name, arguments: args as Record<string, unknown> },
+						undefined,
+						{ timeout: CALL_TIMEOUT_MS, signal },
+					)) as CallToolResult,
+				);
+			} catch (error) {
+				// The tokens expired and could not be refreshed.
+				if (error instanceof UnauthorizedError && authorizationUrls.has(name)) {
+					await askForAuthorization(name);
+					throw new Error(
+						`MCP server "${name}" needs the user's authorization again; ` +
+							"the user has been sent the link.",
 					);
-				} catch (error) {
-					// The tokens expired and could not be refreshed.
-					if (
-						error instanceof UnauthorizedError &&
-						authorizationUrls.has(name)
-					) {
-						await askForAuthorization(name);
-						return errorResult(
-							`MCP server "${name}" needs the user's authorization again; ` +
-								"the user has been sent the link.",
-						);
-					}
-					throw error;
 				}
-			},
-		});
+				throw error;
+			}
+		},
+	});
+
+	// The allowed tools of each connected server; the codemode tool is
+	// installed anew whenever they change.
+	const serverTools = new Map<string, CodemodeTool[]>();
+	const installCodemode = () => {
+		const tools = [...serverTools.values()].flat();
+		if (tools.length === 0) return;
+		registry.install(
+			defineExtension({ name: "mcp", tools: [createCodemodeTool(tools)] }),
+		);
+	};
 
 	// Only the allowed tools of a server ever reach the agent.
 	const allowedTools = async (
@@ -188,7 +178,7 @@ export const startMcp = async ({
 
 		return tools
 			.filter((tool) => config.tools.includes(tool.name))
-			.map((tool) => defineMcpTool(name, client, tool));
+			.map((tool) => sandboxTool(name, client, tool));
 	};
 
 	const connectServer = async (
@@ -206,12 +196,8 @@ export const startMcp = async ({
 			throw error;
 		}
 
-		registry.install(
-			defineExtension({
-				name: `mcp:${name}`,
-				tools: await allowedTools(name, config, client),
-			}),
-		);
+		serverTools.set(name, await allowedTools(name, config, client));
+		installCodemode();
 	};
 
 	const finishAuthorization = async (redirect: URL): Promise<string> => {
