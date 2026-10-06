@@ -3,6 +3,7 @@ import type { UserInput } from "@earendil-works/pi-durable";
 import type { Context, Filter } from "grammy";
 
 import { root } from "../agent/harness.ts";
+import { transcribe } from "../voice/whisper.ts";
 import { downloadFile } from "./files.ts";
 import { startProgress, stopProgress } from "./progress.ts";
 
@@ -54,4 +55,21 @@ export const handlePhotoMessage = async (
 		...(caption ? [{ type: "text" as const, text: caption }] : []),
 		{ type: "image", data: image.toString("base64"), mimeType: "image/jpeg" },
 	]);
+};
+
+// The model gets what was said, as if it had been typed.
+export const handleVoiceMessage = async (
+	ctx: Filter<Context, "message:voice">,
+): Promise<void> => {
+	const { voice, message_id } = ctx.message;
+
+	const text = await transcribe({
+		data: await downloadFile(voice.file_id),
+		fileName: "voice.ogg",
+		mimeType: voice.mime_type ?? "audio/ogg",
+	});
+	console.log("Received voice:", text);
+	if (!text) return;
+
+	await submitInput(message_id, text);
 };

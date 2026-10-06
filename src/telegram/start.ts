@@ -1,6 +1,10 @@
 import { harness, root } from "../agent/harness.ts";
 import { bot, chatId, environment } from "./bot.ts";
-import { handlePhotoMessage, handleTextMessage } from "./inbound.ts";
+import {
+	handlePhotoMessage,
+	handleTextMessage,
+	handleVoiceMessage,
+} from "./inbound.ts";
 import { forwardAssistantMessages } from "./outbound.ts";
 
 export const startTelegram = async (): Promise<void> => {
@@ -12,6 +16,7 @@ export const startTelegram = async (): Promise<void> => {
 	const chat = bot.filter((ctx) => ctx.chat?.id === chatId);
 	chat.on("message:text", handleTextMessage);
 	chat.on("message:photo", handlePhotoMessage);
+	chat.on("message:voice", handleVoiceMessage);
 	bot.catch((error) => {
 		console.error("Telegram error:", error);
 	});
