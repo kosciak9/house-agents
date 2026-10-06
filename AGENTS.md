@@ -2,6 +2,10 @@
 
 House assistant on `@earendil-works/pi-durable`, talking through Telegram (grammY).
 
+Single user, single thread, forever: there is exactly one conversation (the root).
+Subagents may run in their own conversations, but they never replace that one
+thread. Don't design for multiple users, chats or parallel threads.
+
 ## Code
 
 - No classes: functions plus module singletons; feature folders in `src/`.
