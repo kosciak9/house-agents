@@ -2,7 +2,6 @@ import type {
 	AuthEvent,
 	AuthInteraction,
 	AuthPrompt,
-	Provider,
 } from "@earendil-works/pi-ai";
 import type { CommandContext, Context, Filter, NextFunction } from "grammy";
 
@@ -11,16 +10,12 @@ import { bot, chatId } from "./bot.ts";
 
 // Logging in to the model providers runs between the user and the chat, past
 // the agent: `/login`, `/logout`, `/cancel`. Answers to a login's questions are
-// taken from the chat while it runs, and secrets are deleted once read.
-
-type Answer = {
-	secret: boolean;
-	accept: (text: string) => boolean;
-};
+// taken from the chat while it runs.
 
 type Login = {
 	controller: AbortController;
-	answer: Answer | undefined;
+	/** Takes the answer to the open question; false if it is not one. */
+	answer: ((text: string) => boolean) | undefined;
 };
 
 let login: Login | undefined;
@@ -85,23 +80,16 @@ const createInteraction = (current: Login): AuthInteraction => ({
 				signal?.addEventListener("abort", abort, { once: true });
 			}
 
-			current.answer = {
-				secret: prompt.type === "secret",
-				accept: (text) => {
-					const value = selected(prompt, text);
-					if (value === undefined) return false;
-					current.answer = undefined;
-					resolve(value);
-					return true;
-				},
+			current.answer = (text) => {
+				const value = selected(prompt, text);
+				if (value === undefined) return false;
+				current.answer = undefined;
+				resolve(value);
+				return true;
 			};
 		});
 	},
 });
-
-// Subscriptions sign in through OAuth; the rest take an API key.
-const authType = (provider: Provider) =>
-	provider.auth.oauth ? ("oauth" as const) : ("api_key" as const);
 
 const statusLines = async (): Promise<string[]> =>
 	Promise.all(
@@ -125,8 +113,9 @@ export const handleLoginCommand = async (
 		return;
 	}
 
+	// Only subscriptions, which sign in through OAuth.
 	const provider = models.getProvider(providerId);
-	if (!provider) {
+	if (!provider?.auth.oauth) {
 		await ctx.reply(`Nie znam dostawcy „${providerId}”. Zobacz /login.`);
 		return;
 	}
@@ -143,7 +132,7 @@ export const handleLoginCommand = async (
 
 	// Not awaited: the login waits for answers that arrive as later updates.
 	models
-		.login(provider.id, authType(provider), createInteraction(current))
+		.login(provider.id, "oauth", createInteraction(current))
 		.then(() => send(`Zalogowano: ${provider.name}.`))
 		.catch((error: unknown) => {
 			console.error("Login failed:", error);
@@ -193,12 +182,7 @@ export const takeLoginAnswer = async (
 		return;
 	}
 
-	if (answer.secret) {
-		await ctx
-			.deleteMessage()
-			.catch((error) => console.error("Could not delete the secret:", error));
-	}
-	if (!answer.accept(ctx.message.text.trim())) {
+	if (!answer(ctx.message.text.trim())) {
 		await ctx.reply("Nie rozumiem; odpowiedz numerem z listy.");
 	}
 };
