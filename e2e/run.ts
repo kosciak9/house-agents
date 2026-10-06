@@ -1,7 +1,8 @@
 // `pnpm e2e [name ...] [--grep <pattern>]`: runs the E2E files named
-// (`cron` or `e2e/cron.test.ts`; all by default) one at a time, with the
-// compact reporter of `e2e/reporter.ts`. Runs from every checkout share the
-// test bot, so a run waits for any other one to finish first.
+// (`cron` or `e2e/cron.test.ts`; by default all but the smoke test, whose
+// contract every other file covers) one at a time, with the compact reporter
+// of `e2e/reporter.ts`. Runs from every checkout share the test bot, so a run
+// waits for any other one to finish first.
 import { spawn } from "node:child_process";
 import {
 	globSync,
@@ -16,6 +17,7 @@ import { parseArgs } from "node:util";
 
 const LOCK_FILE = "state/e2e.lock";
 const LOCK_POLL_MS = 5_000;
+const SMOKE_TEST = path.join("e2e", "smoke.test.ts");
 
 const { values, positionals } = parseArgs({
 	allowPositionals: true,
@@ -28,7 +30,9 @@ const testFile = (name: string): string =>
 const files =
 	positionals.length > 0
 		? positionals.map(testFile)
-		: globSync("e2e/*.test.ts").sort();
+		: globSync("e2e/*.test.ts")
+				.filter((file) => file !== SMOKE_TEST)
+				.sort();
 
 const isAlive = (pid: number): boolean => {
 	try {

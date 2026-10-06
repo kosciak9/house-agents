@@ -16,10 +16,12 @@ thread. Don't design for multiple users, chats or parallel threads.
 
 ## Verify
 
-- After every change: `pnpm check` (biome + tsc) and `pnpm e2e <name>` for
-  the E2E files the change touches (`pnpm e2e conversation` runs
-  `e2e/conversation.test.ts`; `--grep <pattern>` filters test names).
-- After a larger set of changes: `pnpm e2e` (all files).
+- After every change: `pnpm check` (biome + tsc) and `pnpm e2e:smoke`
+  (seconds). When the change touches a contract an E2E file covers, also that
+  file: `pnpm e2e conversation` runs `e2e/conversation.test.ts`;
+  `--grep <pattern>` filters test names.
+- The full suite, `pnpm e2e` (a few minutes), runs rarely: before a merge to
+  `main`.
 - Run these as they are, in the foreground: no redirects, `grep`, `tail` or
   extra shells. The output is one line per test, why each failure failed, and
   the output of the bot behind each failing file; full logs go to
