@@ -11,11 +11,20 @@ export type StdioServer = {
 	tools: string[];
 };
 
+export type OAuthClient = {
+	/** Without one, the client registers itself with the server. */
+	clientId: string | undefined;
+	clientSecret: string | undefined;
+	scope: string | undefined;
+};
+
 export type HttpServer = {
 	type: "http";
 	url: URL;
 	/** Sent with every request, e.g. `Authorization: Bearer <key>`. */
 	headers: Record<string, string>;
+	/** Set when the server authorizes the user through OAuth. */
+	oauth: OAuthClient | undefined;
 	tools: string[];
 };
 
@@ -50,6 +59,21 @@ const optionalString = (value: unknown, field: string): string | undefined => {
 	return value;
 };
 
+// `"oauth": true` registers the client dynamically; an object may name a
+// pre-registered client and the scope to ask for.
+const parseOAuth = (value: unknown, field: string): OAuthClient | undefined => {
+	if (value === undefined || value === false) return undefined;
+	if (value === true) {
+		return { clientId: undefined, clientSecret: undefined, scope: undefined };
+	}
+	if (!isRecord(value)) throw new Error(`${field} must be true or an object`);
+	return {
+		clientId: optionalString(value.clientId, `${field}.clientId`),
+		clientSecret: optionalString(value.clientSecret, `${field}.clientSecret`),
+		scope: optionalString(value.scope, `${field}.scope`),
+	};
+};
+
 const parseServer = (name: string, value: unknown): ServerConfig => {
 	const field = `MCP_SERVERS.${name}`;
 	if (!isRecord(value)) throw new Error(`${field} must be an object`);
@@ -64,6 +88,7 @@ const parseServer = (name: string, value: unknown): ServerConfig => {
 				value.headers === undefined
 					? {}
 					: stringRecord(value.headers, `${field}.headers`),
+			oauth: parseOAuth(value.oauth, `${field}.oauth`),
 			tools,
 		};
 	}
@@ -103,3 +128,40 @@ const parseServers = (json: string | undefined): Map<string, ServerConfig> => {
 };
 
 export const servers = parseServers(process.env.MCP_SERVERS);
+
+/**
+ * Where the user's browser finishes an OAuth authorization: the bot listens on
+ * MCP_OAUTH_PORT, reachable for the user at MCP_OAUTH_URL (e.g. through
+ * Tailscale serve). Tokens are kept in MCP_OAUTH_FILE.
+ */
+export type OAuthSettings = {
+	publicUrl: URL;
+	port: number;
+	file: string;
+};
+
+const parseOAuthSettings = (): OAuthSettings | undefined => {
+	const usesOAuth = [...servers.values()].some(
+		(server) => server.type === "http" && server.oauth,
+	);
+	if (!usesOAuth) return undefined;
+
+	const { MCP_OAUTH_URL, MCP_OAUTH_PORT, MCP_OAUTH_FILE } = process.env;
+	if (!MCP_OAUTH_URL || !MCP_OAUTH_PORT) {
+		throw new Error(
+			"MCP_OAUTH_URL and MCP_OAUTH_PORT are required for OAuth MCP servers",
+		);
+	}
+	const port = Number(MCP_OAUTH_PORT);
+	if (!Number.isSafeInteger(port)) {
+		throw new Error("MCP_OAUTH_PORT must be a port number");
+	}
+
+	return {
+		publicUrl: new URL(MCP_OAUTH_URL),
+		port,
+		file: MCP_OAUTH_FILE ?? "state/mcp-oauth.json",
+	};
+};
+
+export const oauthSettings = parseOAuthSettings();

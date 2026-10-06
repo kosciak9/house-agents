@@ -7,12 +7,12 @@ import {
 } from "./inbound.ts";
 import { forwardAssistantMessages } from "./outbound.ts";
 
-export const startTelegram = async (): Promise<void> => {
-	await forwardAssistantMessages(harness, root.id);
-	// Resume only once forwarding is attached, so answers of runs interrupted by
-	// the last shutdown still reach the chat.
-	harness.resume();
+/** Sends every answer of the conversation to the chat. */
+export const forwardToTelegram = (): Promise<void> =>
+	forwardAssistantMessages(harness, root.id);
 
+/** Starts taking messages from the chat. */
+export const startTelegram = async (): Promise<void> => {
 	const chat = bot.filter((ctx) => ctx.chat?.id === chatId);
 	chat.on("message:text", handleTextMessage);
 	chat.on("message:photo", handlePhotoMessage);

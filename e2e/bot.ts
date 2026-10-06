@@ -49,18 +49,22 @@ const stopProcess = async (child: ChildProcess): Promise<void> => {
  * Runs the real bot (`src/index.ts`) as a separate process against the test
  * environment, as the agent `prompt` describes. Without `sessionFile` it
  * starts from an empty session that is deleted on `stop`. It uses no MCP
- * servers unless `mcpServers` lists them. Set E2E_VERBOSE=1 to see the bot's
- * output.
+ * servers unless `mcpServers` lists them; their OAuth tokens are kept next to
+ * the session, so they survive a restart too. Set E2E_VERBOSE=1 to see the
+ * bot's output.
  */
 export const startBot = async ({
 	sessionFile,
 	prompt = DEFAULT_PROMPT,
 	mcpServers = {},
+	mcpOAuth,
 }: {
 	sessionFile?: string;
 	prompt?: string;
 	/** The MCP_SERVERS configuration, as an object. */
 	mcpServers?: Record<string, unknown>;
+	/** Where the bot takes OAuth callbacks of MCP servers. */
+	mcpOAuth?: { url: string; port: number };
 } = {}): Promise<RunningBot> => {
 	const ownDirectory =
 		sessionFile === undefined
@@ -75,6 +79,11 @@ export const startBot = async ({
 			AGENT_SESSION_FILE: file,
 			AGENT_PROMPT: prompt,
 			MCP_SERVERS: JSON.stringify(mcpServers),
+			MCP_OAUTH_FILE: path.join(path.dirname(file), "mcp-oauth.json"),
+			...(mcpOAuth && {
+				MCP_OAUTH_URL: mcpOAuth.url,
+				MCP_OAUTH_PORT: String(mcpOAuth.port),
+			}),
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 	});

@@ -4,7 +4,6 @@
 // Runs its own bot process on an empty session, next to a test MCP server
 // (`e2e/mcp/server.ts`) on HTTP; the bot starts the stdio one itself.
 import assert from "node:assert/strict";
-import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -14,13 +13,17 @@ import type { Client } from "tdl";
 
 import { type RunningBot, startBot } from "./bot.ts";
 import {
+	type RunningMcpServer,
+	STDIO_SERVER,
+	startHttpMcpServer,
+} from "./mcp/http.ts";
+import {
 	botUsername,
 	connectTestUser,
 	sendAndWaitForReply,
 } from "./telegram/client.ts";
 
 const MINUTE = 60_000;
-const SERVER = ["--import", "tsx", "e2e/mcp/server.ts"];
 
 const runId = Date.now().toString(36).toUpperCase();
 const httpWord = `ZDALNE-${runId}`;
@@ -30,45 +33,27 @@ const apiKey = `key-${runId}`;
 const directory = mkdtempSync(path.join(tmpdir(), "e2e-mcp-"));
 const visitFile = path.join(directory, "visits.txt");
 
-// Starts the HTTP test server and resolves with its port.
-const startHttpServer = (child: ChildProcess): Promise<number> =>
-	new Promise((resolve, reject) => {
-		child.stdout?.on("data", (chunk: Buffer) => {
-			const port = /listening on (\d+)/.exec(chunk.toString())?.[1];
-			if (port) resolve(Number(port));
-		});
-		child.once("exit", (code) =>
-			reject(new Error(`MCP server exited (${code})`)),
-		);
-	});
-
-let httpServer: ChildProcess;
+let httpServer: RunningMcpServer;
 let runningBot: RunningBot;
 let client: Client;
 let bot: string;
 
 before(async () => {
-	httpServer = spawn(process.execPath, [...SERVER, "http"], {
-		env: {
-			...process.env,
-			WORD: httpWord,
-			VISIT_FILE: visitFile,
-			API_KEY: apiKey,
-		},
-		stdio: ["ignore", "pipe", "inherit"],
+	httpServer = await startHttpMcpServer({
+		WORD: httpWord,
+		VISIT_FILE: visitFile,
+		API_KEY: apiKey,
 	});
-	const port = await startHttpServer(httpServer);
 
 	runningBot = await startBot({
 		mcpServers: {
 			remote: {
-				url: `http://127.0.0.1:${port}/mcp`,
+				url: httpServer.url,
 				headers: { Authorization: `Bearer ${apiKey}` },
 				tools: ["get_word"],
 			},
 			local: {
-				command: process.execPath,
-				args: [...SERVER, "stdio"],
+				...STDIO_SERVER,
 				env: { WORD: stdioWord, VISIT_FILE: visitFile },
 				tools: ["get_word"],
 			},
@@ -81,7 +66,7 @@ before(async () => {
 after(async () => {
 	await client?.close();
 	await runningBot?.stop();
-	httpServer?.kill();
+	httpServer?.stop();
 	rmSync(directory, { recursive: true, force: true });
 });
 
