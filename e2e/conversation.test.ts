@@ -1,13 +1,13 @@
 // Contract: one conversation, as the user lives it. The agent is who its
-// prompt says; it sees photos and hears voice messages. A full process
-// restart keeps the conversation and its pending wake-ups: one that fell due
-// while the bot was down reaches the chat once it is back. After /reset ends
-// the conversation and starts a new context, the agent still knows what it
-// was told, down to details its memory has no room for.
+// prompt says; it hears voice messages (photos: `e2e/photo.test.ts`). A
+// full process restart keeps the conversation and its pending wake-ups: one
+// that fell due while the bot was down reaches the chat once it is back.
+// After /reset ends the conversation and starts a new context, the agent
+// still knows what it was told, down to details its memory has no room for.
 // Runs its own bot processes on one session that outlives each of them; the
 // steps build on each other, so they run as one chain.
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -15,12 +15,10 @@ import { after, before, test } from "node:test";
 import type { Client } from "tdl";
 
 import { DEFAULT_PROMPT, type RunningBot, startBot } from "./bot.ts";
-import { COLORS, solidPng } from "./image.ts";
 import {
 	botUsername,
 	connectTestUser,
 	sendAndWaitForReply,
-	sendPhotoAndWaitForReply,
 	sendToBot,
 	sendVoiceAndWaitForReply,
 	waitForBotMessage,
@@ -66,15 +64,11 @@ const quote = ITEMS.map(
 );
 const [asked, askedPrice] = quote[14];
 
-// Random per run, so the agent cannot pass by guessing the same color.
-const color = COLORS[Math.floor(Math.random() * COLORS.length)] ?? COLORS[0];
-
 // "Jaka jest stolica Francji? Odpowiedz jednym słowem po polsku.", spoken by
 // espeak-ng and encoded as a Telegram voice note (mono OGG Opus).
 const VOICE_FILE = path.resolve("e2e/fixtures/question.ogg");
 
 const directory = mkdtempSync(path.join(tmpdir(), "e2e-conversation-"));
-const imageFile = path.join(directory, "color.png");
 
 let runningBot: RunningBot | undefined;
 let client: Client;
@@ -87,7 +81,6 @@ const say = (text: string) =>
 	});
 
 before(async () => {
-	writeFileSync(imageFile, solidPng(color.rgb, 256));
 	runningBot = await startBot({ stateDir: directory, prompt: PROMPT });
 	client = await connectTestUser();
 	bot = botUsername();
@@ -99,7 +92,7 @@ after(async () => {
 	rmSync(directory, { recursive: true, force: true });
 });
 
-test("conversation: persona, photo, voice, restart and reset", {
+test("conversation: persona, voice, restart and reset", {
 	timeout: 8 * MINUTE,
 }, async (t) => {
 	await t.test("introduces itself by its prompt's name", async () => {
@@ -107,17 +100,6 @@ test("conversation: persona, photo, voice, restart and reset", {
 			await say("Jak masz na imię? Odpowiedz jednym słowem."),
 			/Zefiryn/i,
 		);
-	});
-
-	await t.test("sees the photo it is sent", async () => {
-		const reply = await sendPhotoAndWaitForReply(
-			client,
-			bot,
-			imageFile,
-			"Jaki kolor ma to zdjęcie? Odpowiedz jednym słowem po polsku.",
-			{ matches: isNotTick, timeoutMs: 2 * MINUTE },
-		);
-		assert.match(reply, color.answer);
 	});
 
 	await t.test("answers what a voice message says", async () => {
