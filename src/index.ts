@@ -2,7 +2,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 
 import { harness, root } from "./agent/harness.ts";
 import { registry } from "./agent/registry.ts";
-import { oauthSettings, servers } from "./mcp/config.ts";
+import { oauthFile, servers } from "./mcp/config.ts";
 import { startMcp } from "./mcp/start.ts";
 import { forwardToTelegram, startTelegram } from "./telegram/start.ts";
 
@@ -15,7 +15,7 @@ harness.resume();
 await startMcp({
 	registry,
 	servers,
-	oauth: oauthSettings,
+	oauthFile,
 	notify: async (text) => {
 		await root.submit(
 			{ type: "input", content: text, whenBusy: "followUp" },

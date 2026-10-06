@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { createServer, type Server } from "node:http";
 import path from "node:path";
 
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
@@ -60,17 +59,16 @@ export const createOAuthProvider = ({
 	url,
 	client,
 	store,
-	redirectUrl,
 	onAuthorizationUrl,
 }: {
 	server: string;
 	url: URL;
 	client: OAuthClient;
 	store: TokenStore;
-	redirectUrl: URL;
 	onAuthorizationUrl: (authorizationUrl: URL) => void;
 }): OAuthClientProvider => {
 	const key = url.href;
+	const { redirectUrl } = client;
 
 	return {
 		get redirectUrl() {
@@ -102,7 +100,7 @@ export const createOAuthProvider = ({
 
 		saveTokens: (tokens) => store.update(server, key, { tokens }),
 
-		// Ties the callback to the flow, and so to this server.
+		// Ties the pasted redirect to its flow, and so to this server.
 		state: () => randomUUID(),
 
 		redirectToAuthorization: onAuthorizationUrl,
@@ -116,67 +114,4 @@ export const createOAuthProvider = ({
 			return codeVerifier;
 		},
 	};
-};
-
-export const CALLBACK_PATH = "/mcp-oauth/callback";
-export const startPath = (server: string): string =>
-	`/mcp-oauth/start/${encodeURIComponent(server)}`;
-
-const page = (text: string): string =>
-	`<!doctype html><meta charset="utf-8"><title>MCP</title><p>${text}</p>`;
-
-/**
- * Serves the two pages of an authorization: a short start link per server that
- * redirects to the server's authorization URL, and the callback it returns to.
- */
-export const startCallbackServer = ({
-	port,
-	authorizationUrl,
-	finish,
-}: {
-	port: number;
-	authorizationUrl: (server: string) => URL | undefined;
-	finish: (state: string, code: string) => Promise<string>;
-}): Promise<Server> => {
-	const http = createServer(async (request, response) => {
-		const url = new URL(request.url ?? "/", "http://localhost");
-		const reply = (status: number, text: string) =>
-			response
-				.writeHead(status, { "content-type": "text/html; charset=utf-8" })
-				.end(page(text));
-
-		if (url.pathname.startsWith("/mcp-oauth/start/")) {
-			const server = decodeURIComponent(url.pathname.split("/").pop() ?? "");
-			const target = authorizationUrl(server);
-			if (!target) {
-				reply(404, "Nothing to authorize.");
-				return;
-			}
-			response.writeHead(302, { location: target.href }).end();
-			return;
-		}
-
-		if (url.pathname === CALLBACK_PATH) {
-			const state = url.searchParams.get("state");
-			const code = url.searchParams.get("code");
-			if (!state || !code) {
-				reply(400, "Authorization failed.");
-				return;
-			}
-			try {
-				const server = await finish(state, code);
-				reply(200, `Authorized ${server}. You can close this page.`);
-			} catch (error) {
-				console.error("MCP OAuth callback failed:", error);
-				reply(400, "Authorization failed.");
-			}
-			return;
-		}
-
-		reply(404, "Not found.");
-	});
-
-	return new Promise((resolve) => {
-		http.listen(port, () => resolve(http));
-	});
 };

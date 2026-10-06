@@ -57,14 +57,11 @@ export const startBot = async ({
 	sessionFile,
 	prompt = DEFAULT_PROMPT,
 	mcpServers = {},
-	mcpOAuth,
 }: {
 	sessionFile?: string;
 	prompt?: string;
 	/** The MCP_SERVERS configuration, as an object. */
 	mcpServers?: Record<string, unknown>;
-	/** Where the bot takes OAuth callbacks of MCP servers. */
-	mcpOAuth?: { url: string; port: number };
 } = {}): Promise<RunningBot> => {
 	const ownDirectory =
 		sessionFile === undefined
@@ -80,10 +77,6 @@ export const startBot = async ({
 			AGENT_PROMPT: prompt,
 			MCP_SERVERS: JSON.stringify(mcpServers),
 			MCP_OAUTH_FILE: path.join(path.dirname(file), "mcp-oauth.json"),
-			...(mcpOAuth && {
-				MCP_OAUTH_URL: mcpOAuth.url,
-				MCP_OAUTH_PORT: String(mcpOAuth.port),
-			}),
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 	});

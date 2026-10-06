@@ -1,12 +1,13 @@
-// Contract: an MCP server that authorizes through OAuth gets the user a link
-// in the chat; once the user opens it, the server's tools work, and they keep
-// working after a full restart without asking again.
+// Contract: an MCP server that authorizes through OAuth gets the user its
+// authorization link in the chat; the user approves and pastes the address
+// the browser ends up on back into the chat, after which the server's tools
+// work, also after a full restart without asking again. Nothing of the bot is
+// reachable from outside.
 // Runs its own bot processes on one session, next to a test MCP server
 // (`e2e/mcp/server.ts`) that is its own OAuth authorization server and
-// approves at once, so opening the link stands in for the user's consent.
+// approves at once, so fetching the link stands in for the user's consent.
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -30,20 +31,10 @@ const word = `CHRONIONE-${runId}`;
 const directory = mkdtempSync(path.join(tmpdir(), "e2e-mcp-oauth-"));
 const sessionFile = path.join(directory, "session.sqlite");
 
-const freePort = (): Promise<number> =>
-	new Promise((resolve) => {
-		const server = createServer().listen(0, "127.0.0.1", () => {
-			const address = server.address();
-			const port = typeof address === "object" && address ? address.port : 0;
-			server.close(() => resolve(port));
-		});
-	});
-
 let mcpServer: RunningMcpServer;
 let runningBot: RunningBot | undefined;
 let client: Client;
 let bot: string;
-let callbackPort: number;
 
 const startOAuthBot = () =>
 	startBot({
@@ -51,7 +42,6 @@ const startOAuthBot = () =>
 		mcpServers: {
 			secure: { url: mcpServer.url, oauth: true, tools: ["get_word"] },
 		},
-		mcpOAuth: { url: `http://127.0.0.1:${callbackPort}`, port: callbackPort },
 	});
 
 const askForWord = () =>
@@ -68,7 +58,6 @@ before(async () => {
 		VISIT_FILE: path.join(directory, "visits.txt"),
 		OAUTH: "1",
 	});
-	callbackPort = await freePort();
 	client = await connectTestUser();
 	bot = botUsername();
 });
@@ -80,28 +69,42 @@ after(async () => {
 	rmSync(directory, { recursive: true, force: true });
 });
 
-test("mcp oauth: link in chat → authorized → tools work, also after restart", {
+test("mcp oauth: link in chat → pasted redirect → tools work, also after restart", {
 	timeout: 6 * MINUTE,
 }, async (t) => {
 	let link = "";
+	let redirect = "";
 
 	await t.test("sends the authorization link on start", async () => {
-		const linkPattern = new RegExp(
-			`http://127\\.0\\.0\\.1:${callbackPort}/mcp-oauth/start/secure`,
+		const authorizeUrl = new RegExp(
+			`${new URL(mcpServer.url).origin.replace(/\./g, "\\.")}/authorize\\?[^\\s)]+`,
 		);
 		const message = waitForBotMessage(client, bot, {
-			matches: (text) => linkPattern.test(text),
+			matches: (text) => authorizeUrl.test(text),
 			timeoutMs: 2 * MINUTE,
 		});
 		runningBot = await startOAuthBot();
-		link = linkPattern.exec(await message)?.[0] ?? "";
+		link = authorizeUrl.exec(await message)?.[0] ?? "";
 	});
 
-	await t.test("opening the link authorizes the server", async () => {
-		const response = await fetch(link);
-		assert.equal(response.status, 200);
-		assert.match(await response.text(), /Authorized secure/);
-	});
+	await t.test(
+		"approving sends the browser to the redirect address",
+		async () => {
+			const response = await fetch(link, { redirect: "manual" });
+			assert.equal(response.status, 302);
+			redirect = response.headers.get("location") ?? "";
+			assert.match(redirect, /^http:\/\/localhost\/mcp-oauth\/callback\?/);
+		},
+	);
+
+	await t.test(
+		"pasting the redirect address authorizes the server",
+		async () => {
+			await sendAndWaitForReply(client, bot, redirect, {
+				timeoutMs: 2 * MINUTE,
+			});
+		},
+	);
 
 	await t.test("the server's tools work", async () => {
 		assert.match(await askForWord(), new RegExp(word));

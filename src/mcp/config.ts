@@ -16,6 +16,8 @@ export type OAuthClient = {
 	clientId: string | undefined;
 	clientSecret: string | undefined;
 	scope: string | undefined;
+	/** Where the server sends the user back with the authorization code. */
+	redirectUrl: URL;
 };
 
 export type HttpServer = {
@@ -59,18 +61,31 @@ const optionalString = (value: unknown, field: string): string | undefined => {
 	return value;
 };
 
+// Nothing listens there: the user's browser fails to open it and the user
+// pastes its address into the chat instead.
+const DEFAULT_REDIRECT_URL = "http://localhost/mcp-oauth/callback";
+
 // `"oauth": true` registers the client dynamically; an object may name a
-// pre-registered client and the scope to ask for.
+// pre-registered client, its redirect URL and the scope to ask for.
 const parseOAuth = (value: unknown, field: string): OAuthClient | undefined => {
 	if (value === undefined || value === false) return undefined;
 	if (value === true) {
-		return { clientId: undefined, clientSecret: undefined, scope: undefined };
+		return {
+			clientId: undefined,
+			clientSecret: undefined,
+			scope: undefined,
+			redirectUrl: new URL(DEFAULT_REDIRECT_URL),
+		};
 	}
 	if (!isRecord(value)) throw new Error(`${field} must be true or an object`);
 	return {
 		clientId: optionalString(value.clientId, `${field}.clientId`),
 		clientSecret: optionalString(value.clientSecret, `${field}.clientSecret`),
 		scope: optionalString(value.scope, `${field}.scope`),
+		redirectUrl: new URL(
+			optionalString(value.redirectUrl, `${field}.redirectUrl`) ??
+				DEFAULT_REDIRECT_URL,
+		),
 	};
 };
 
@@ -129,39 +144,5 @@ const parseServers = (json: string | undefined): Map<string, ServerConfig> => {
 
 export const servers = parseServers(process.env.MCP_SERVERS);
 
-/**
- * Where the user's browser finishes an OAuth authorization: the bot listens on
- * MCP_OAUTH_PORT, reachable for the user at MCP_OAUTH_URL (e.g. through
- * Tailscale serve). Tokens are kept in MCP_OAUTH_FILE.
- */
-export type OAuthSettings = {
-	publicUrl: URL;
-	port: number;
-	file: string;
-};
-
-const parseOAuthSettings = (): OAuthSettings | undefined => {
-	const usesOAuth = [...servers.values()].some(
-		(server) => server.type === "http" && server.oauth,
-	);
-	if (!usesOAuth) return undefined;
-
-	const { MCP_OAUTH_URL, MCP_OAUTH_PORT, MCP_OAUTH_FILE } = process.env;
-	if (!MCP_OAUTH_URL || !MCP_OAUTH_PORT) {
-		throw new Error(
-			"MCP_OAUTH_URL and MCP_OAUTH_PORT are required for OAuth MCP servers",
-		);
-	}
-	const port = Number(MCP_OAUTH_PORT);
-	if (!Number.isSafeInteger(port)) {
-		throw new Error("MCP_OAUTH_PORT must be a port number");
-	}
-
-	return {
-		publicUrl: new URL(MCP_OAUTH_URL),
-		port,
-		file: MCP_OAUTH_FILE ?? "state/mcp-oauth.json",
-	};
-};
-
-export const oauthSettings = parseOAuthSettings();
+/** Where OAuth clients and tokens of the servers are kept. */
+export const oauthFile = process.env.MCP_OAUTH_FILE ?? "state/mcp-oauth.json";
