@@ -52,8 +52,9 @@ export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 	);
 	chat.on("message:photo", handlePhotoMessage);
 	chat.on("message:voice", handleVoiceMessage);
-	bot.catch((error) => {
-		console.error("Telegram error:", error);
+	// Only the cause: the context it comes with holds the bot's token.
+	bot.catch(({ error, ctx }) => {
+		console.error(`Telegram error in update ${ctx.update.update_id}:`, error);
 	});
 
 	await bot.start({

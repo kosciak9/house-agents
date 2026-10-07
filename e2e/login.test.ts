@@ -1,7 +1,8 @@
 // Contract: the user signs in to model providers from the chat, past the
 // agent: /login lists them with their status, /login <provider> asks the
 // provider's questions in the chat, /cancel stops it and /logout forgets a
-// stored credential.
+// stored credential. A message the agent cannot answer, as no model it uses
+// is logged in, gets a word why.
 // Runs its own bot process on an empty session with its own credentials, so no
 // real account is touched. Goes only as far as a login gets without one: the
 // subscriptions' device codes need a real account to approve.
@@ -53,6 +54,11 @@ after(async () => {
 });
 
 test("login: status, questions in the chat, cancel and logout", async (t) => {
+	await t.test("says why it cannot answer before a login", async () => {
+		const reply = await sendAndWaitForReply(client, bot, "Cześć!");
+		assert.match(reply, /^⚠️ Nie udało się odpowiedzieć: .*openai-codex/);
+	});
+
 	await t.test("/login lists the providers with their status", async () => {
 		const list = await sendAndWaitForReply(client, bot, "/login");
 		assert.match(list, /^openai-codex .*—$/m);

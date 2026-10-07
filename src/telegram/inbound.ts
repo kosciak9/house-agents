@@ -5,6 +5,7 @@ import type { CommandContext, Context, Filter } from "grammy";
 import { root } from "../agent/harness.ts";
 import { memory } from "../agent/memory.ts";
 import { transcribe } from "../voice/whisper.ts";
+import { bot, chatId } from "./bot.ts";
 import { downloadFile } from "./files.ts";
 import { startProgress, stopProgress } from "./progress.ts";
 
@@ -22,8 +23,12 @@ const submitInput = async (
 
 		const settled = await submission.wait(BACKGROUND_CONTEXT);
 
-		if (settled.status !== "done" || settled.type !== "input") {
-			throw new Error(`Unexpected submission result: ${settled.status}`);
+		// An input /reset cut short needs no word; any other one left unanswered
+		// tells the chat why, e.g. that no model it can use is logged in.
+		if (settled.status === "unanswered" && settled.reason !== "aborted") {
+			const why =
+				typeof settled.detail === "string" ? settled.detail : settled.reason;
+			await bot.api.sendMessage(chatId, `⚠️ Nie udało się odpowiedzieć: ${why}`);
 		}
 	} finally {
 		stopProgress();
