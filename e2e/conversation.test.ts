@@ -4,7 +4,8 @@
 // that fell due while the bot was down reaches the chat once it is back.
 // It comes back on a model that fails, xAI's, which E2E never logs in to:
 // the chat hears so, and the fallback model answers in its place from then
-// on. After /reset ends the conversation and starts a new context, the agent
+// on. /reset says when it starts and when it is done. After it ends the
+// conversation and starts a new context, the agent
 // still knows what it was told, down to details its memory has no room for.
 // Runs its own bot processes on one session that outlives each of them; the
 // steps build on each other, so they run as one chain.
@@ -21,7 +22,6 @@ import {
 	botUsername,
 	connectTestUser,
 	sendAndWaitForReply,
-	sendToBot,
 	sendVoiceAndWaitForReply,
 	waitForBotMessage,
 } from "./telegram/client.ts";
@@ -165,7 +165,10 @@ test("conversation: persona, voice, restart, fallback and reset", {
 	});
 
 	await t.test("knows both in a new context", async () => {
-		await sendToBot(client, bot, "/reset");
+		await sendAndWaitForReply(client, bot, "/reset", {
+			matches: (text) => /od nowa/i.test(text),
+			timeoutMs: MINUTE,
+		});
 		const reply = await sendAndWaitForReply(
 			client,
 			bot,

@@ -81,10 +81,11 @@ export const handleVoiceMessage = async (
 };
 
 // Ends the session: it becomes a line of long-term memory and a new context
-// starts.
+// starts. The chat hears when the reset begins and when it is done.
 export const handleResetCommand = async (
 	ctx: CommandContext<Context>,
 ): Promise<void> => {
+	await ctx.reply("🔄 Resetuję rozmowę…");
 	await memory.endSession(root, BACKGROUND_CONTEXT);
-	await ctx.react("👍");
+	await ctx.reply("✅ Zaczynamy od nowa.");
 };
