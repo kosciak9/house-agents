@@ -4,8 +4,9 @@
 // that fell due while the bot was down reaches the chat once it is back.
 // It comes back on a model that fails, xAI's, which E2E never logs in to:
 // the chat hears so, and the fallback model answers in its place from then
-// on. /compact says when it starts and when it is done. After it ends the
-// conversation and starts a new context, the agent still knows what it was told, down to details its memory has no room for.
+// on. The chat's menu offers /compact, which says when it starts and when it
+// is done. After it ends the conversation and starts a new context, the agent
+// still knows what it was told, down to details its memory has no room for.
 // Runs its own bot processes on one session that outlives each of them; the
 // steps build on each other, so they run as one chain.
 import assert from "node:assert/strict";
@@ -18,6 +19,7 @@ import type { Client } from "tdl";
 
 import { DEFAULT_PROMPT, type RunningBot, startBot } from "./bot.ts";
 import {
+	botCommands,
 	botUsername,
 	connectTestUser,
 	sendAndWaitForReply,
@@ -161,6 +163,10 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 				`${quote.map(([item, price]) => `${item} ${price} zł`).join(", ")}. ` +
 				"Potwierdź jednym zdaniem, bez powtarzania pozycji.",
 		);
+	});
+
+	await t.test("offers /compact in the chat's menu", async () => {
+		assert.ok((await botCommands(client, bot)).includes("compact"));
 	});
 
 	await t.test("knows both in a new context", async () => {

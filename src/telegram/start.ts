@@ -1,3 +1,5 @@
+import type { CommandMiddleware, Context } from "grammy";
+
 import { harness, root } from "../agent/harness.ts";
 import type { Mcp } from "../mcp/start.ts";
 import { bot, chatId, environment } from "./bot.ts";
@@ -36,14 +38,56 @@ export const forwardToTelegram = (): Promise<void> => {
 /** Starts taking messages from the chat. */
 export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 	const chat = bot.filter((ctx) => ctx.chat?.id === chatId);
-	// Commands are for the bot itself; they never reach the agent.
-	chat.command("mcp", createMcpCommand(mcp));
-	chat.command("diagnostics", createDiagnosticsCommand(mcp));
-	chat.command(LOGIN_COMMAND, createLoginCommand(mcp));
-	chat.command("login", handleLoginCommand);
-	chat.command("logout", handleLogoutCommand);
-	chat.command("cancel", cancelMcpLogin, handleCancelCommand);
-	chat.command("compact", handleCompactCommand);
+	// Commands are for the bot itself; they never reach the agent. The chat's
+	// command menu lists them as they are here.
+	const commands: {
+		command: string;
+		description: string;
+		handlers: CommandMiddleware<Context>[];
+	}[] = [
+		{
+			command: "compact",
+			description: "Skompaktuj rozmowę: zapisz ją w pamięci, zacznij od nowa",
+			handlers: [handleCompactCommand],
+		},
+		{
+			command: "login",
+			description: "Zaloguj się do dostawcy modeli",
+			handlers: [handleLoginCommand],
+		},
+		{
+			command: "logout",
+			description: "Wyloguj się z dostawcy modeli",
+			handlers: [handleLogoutCommand],
+		},
+		{
+			command: "mcp",
+			description: "Serwery MCP i ich narzędzia",
+			handlers: [createMcpCommand(mcp)],
+		},
+		{
+			command: LOGIN_COMMAND,
+			description: "Zaloguj się do serwera MCP",
+			handlers: [createLoginCommand(mcp)],
+		},
+		{
+			command: "cancel",
+			description: "Przerwij trwające logowanie",
+			handlers: [cancelMcpLogin, handleCancelCommand],
+		},
+		{
+			command: "diagnostics",
+			description: "Stan agenta, np. /diagnostics tools",
+			handlers: [createDiagnosticsCommand(mcp)],
+		},
+	];
+	for (const { command, handlers } of commands) {
+		chat.command(command, ...handlers);
+	}
+	await bot.api.setMyCommands(
+		commands.map(({ command, description }) => ({ command, description })),
+		{ scope: { type: "chat", chat_id: chatId } },
+	);
 	chat.on(
 		"message:text",
 		createLoginAnswer(mcp),

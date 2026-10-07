@@ -196,6 +196,20 @@ const sendContentAndWaitForReply = async (
 	return reply;
 };
 
+/** The commands the chat's menu offers for the bot. */
+export const botCommands = async (
+	client: tdl.Client,
+	bot: string,
+): Promise<string[]> => {
+	const chat = await client.invoke({ _: "searchPublicChat", username: bot });
+	if (chat.type._ !== "chatTypePrivate") throw new Error(`${bot} is no bot`);
+	const { bot_info } = await client.invoke({
+		_: "getUserFullInfo",
+		user_id: chat.type.user_id,
+	});
+	return (bot_info?.commands ?? []).map(({ command }) => command);
+};
+
 /** The texts of the newest messages in the chat with the bot, newest first. */
 export const recentMessages = async (
 	client: tdl.Client,
