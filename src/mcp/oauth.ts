@@ -50,9 +50,14 @@ export const openTokenStore = (file: string): TokenStore => {
 	};
 };
 
+/** Whether the user has logged in to the server at `url`. */
+export const hasTokens = (store: TokenStore, server: string, url: URL) =>
+	store.get(server, url.href).tokens !== undefined;
+
 /**
  * The OAuth client of one server: credentials live in `store`, and sending the
- * user to `authorizationUrl` is left to `onAuthorizationUrl`.
+ * user to `authorizationUrl` is left to `onAuthorizationUrl`. Without it, the
+ * client only uses the tokens it has and never starts an authorization.
  */
 export const createOAuthProvider = ({
 	server,
@@ -65,7 +70,7 @@ export const createOAuthProvider = ({
 	url: URL;
 	client: OAuthClient;
 	store: TokenStore;
-	onAuthorizationUrl: (authorizationUrl: URL) => void;
+	onAuthorizationUrl?: (authorizationUrl: URL) => void;
 }): OAuthClientProvider => {
 	const key = url.href;
 	const { redirectUrl } = client;
@@ -103,10 +108,13 @@ export const createOAuthProvider = ({
 		// Ties the pasted redirect to its flow, and so to this server.
 		state: () => randomUUID(),
 
-		redirectToAuthorization: onAuthorizationUrl,
+		redirectToAuthorization: (authorizationUrl) =>
+			onAuthorizationUrl?.(authorizationUrl),
 
-		saveCodeVerifier: (codeVerifier) =>
-			store.update(server, key, { codeVerifier }),
+		// Only a login may replace the verifier of the login under way.
+		saveCodeVerifier: (codeVerifier) => {
+			if (onAuthorizationUrl) store.update(server, key, { codeVerifier });
+		},
 
 		codeVerifier: () => {
 			const { codeVerifier } = store.get(server, key);

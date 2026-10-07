@@ -1,6 +1,6 @@
 import { models } from "../agent/models.ts";
 import { config, type Model } from "../config.ts";
-import { parseServers, type ServerConfig } from "../mcp/config.ts";
+import { type Policy, parsePolicy } from "../mcp/config.ts";
 
 // The subagents come from the deployment's `subagents`, checked here like
 // its MCP servers.
@@ -9,7 +9,8 @@ export type SubagentConfig = {
 	description: string;
 	prompt: string;
 	model: Model;
-	servers: ReadonlyMap<string, ServerConfig>;
+	/** The MCP tools it may use. */
+	policy: Policy;
 };
 
 const requiredString = (value: unknown, field: string): string => {
@@ -33,18 +34,11 @@ const parseSubagent = (name: string, value: unknown): SubagentConfig => {
 		);
 	}
 
-	const servers = parseServers(subagent.mcpServers, `${field}.mcpServers`);
-	for (const [server, serverConfig] of servers) {
-		if (serverConfig.type === "http" && serverConfig.oauth) {
-			throw new Error(`${field}.mcpServers.${server} cannot use OAuth`);
-		}
-	}
-
 	return {
 		description: requiredString(subagent.description, `${field}.description`),
 		prompt: requiredString(subagent.prompt, `${field}.prompt`),
 		model,
-		servers,
+		policy: parsePolicy(subagent.mcp, `${field}.mcp`),
 	};
 };
 

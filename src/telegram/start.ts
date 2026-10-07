@@ -13,7 +13,13 @@ import {
 	handleLogoutCommand,
 	takeLoginAnswer,
 } from "./login.ts";
-import { AUTH_COMMAND, createAuthCommand } from "./mcp-auth.ts";
+import {
+	cancelMcpLogin,
+	createLoginAnswer,
+	createLoginCommand,
+	createMcpCommand,
+	LOGIN_COMMAND,
+} from "./mcp.ts";
 import { forwardAssistantMessages } from "./outbound.ts";
 
 /** Sends every answer of the conversation to the chat. */
@@ -24,12 +30,18 @@ export const forwardToTelegram = (): Promise<void> =>
 export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 	const chat = bot.filter((ctx) => ctx.chat?.id === chatId);
 	// Commands are for the bot itself; they never reach the agent.
-	chat.command(AUTH_COMMAND, createAuthCommand(mcp));
+	chat.command("mcp", createMcpCommand(mcp));
+	chat.command(LOGIN_COMMAND, createLoginCommand(mcp));
 	chat.command("login", handleLoginCommand);
 	chat.command("logout", handleLogoutCommand);
-	chat.command("cancel", handleCancelCommand);
+	chat.command("cancel", cancelMcpLogin, handleCancelCommand);
 	chat.command("reset", handleResetCommand);
-	chat.on("message:text", takeLoginAnswer, handleTextMessage);
+	chat.on(
+		"message:text",
+		createLoginAnswer(mcp),
+		takeLoginAnswer,
+		handleTextMessage,
+	);
 	chat.on("message:photo", handlePhotoMessage);
 	chat.on("message:voice", handleVoiceMessage);
 	bot.catch((error) => {

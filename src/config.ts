@@ -8,10 +8,12 @@ import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 // `house-agents.config.ts`. Secrets stay in the environment; the deployment
 // reads the ones the config needs from `process.env` itself.
 
-export type McpServer = {
-	/** The tools the agent may call; every other tool stays hidden. */
-	tools: string[];
-} & (
+/**
+ * How to reach an MCP server; who may use which of its tools is up to an
+ * `McpPolicy`. A server that needs OAuth offers nothing until the user logs
+ * in to it from the chat (`/mcp_login`).
+ */
+export type McpServer =
 	| {
 			command: string;
 			args?: string[];
@@ -34,8 +36,13 @@ export type McpServer = {
 						scope?: string;
 						redirectUrl?: string;
 				  };
-	  }
-);
+	  };
+
+/**
+ * The tools an agent may call, by server name from `mcpServers`; every other
+ * server and tool stays hidden from it.
+ */
+export type McpPolicy = Record<string, string[]>;
 
 export type Model = {
 	provider: string;
@@ -56,11 +63,11 @@ export type Subagent = {
 	/** The agent's model by default. */
 	model?: Model;
 	/**
-	 * Only its own: hidden from the agent. Every subagent connects to them anew
-	 * and closes them when it is done, so each one started over stdio runs
-	 * only for that subagent, e.g. a browser of its own. No OAuth.
+	 * Every subagent connects to its servers anew and closes them when it is
+	 * done, so each one started over stdio runs only for that subagent, e.g. a
+	 * browser of its own.
 	 */
-	mcpServers?: Record<string, McpServer>;
+	mcp?: McpPolicy;
 };
 
 export type Config = {
@@ -76,8 +83,10 @@ export type Config = {
 	};
 	/** Whisper's `/v1/audio/transcriptions` endpoint, e.g. whisper.cpp's. */
 	whisperUrl: string;
-	/** The MCP servers the agent may use, by name. */
+	/** The MCP servers the agent and its subagents may use, by name. */
 	mcpServers?: Record<string, McpServer>;
+	/** What the agent itself may use of them. */
+	mcp?: McpPolicy;
 	/** The subagents the agent may start, by name. */
 	subagents?: Record<string, Subagent>;
 	/** Where the agent keeps its session and tokens; `state` by default. */

@@ -1,5 +1,8 @@
 import type { CodemodeTool } from "@earendil-works/pi-codemode";
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+	type OAuthClientProvider,
+	UnauthorizedError,
+} from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -8,7 +11,8 @@ import type {
 	Tool as McpTool,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import type { HttpServer, ServerConfig } from "./config.ts";
+import type { HttpServer, Policy, ServerConfig } from "./config.ts";
+import { createOAuthProvider, hasTokens, type TokenStore } from "./oauth.ts";
 
 const CALL_TIMEOUT_MS = 5 * 60_000;
 
@@ -37,6 +41,9 @@ const scriptValue = (result: CallToolResult): unknown => {
 	return result.structuredContent ?? text;
 };
 
+export const createClient = (): Client =>
+	new Client({ name: "house-agents", version: "1.0.0" });
+
 export const httpTransport = (
 	config: HttpServer,
 	authProvider?: OAuthClientProvider,
@@ -46,33 +53,85 @@ export const httpTransport = (
 		authProvider,
 	});
 
-export const createTransport = (config: ServerConfig) =>
-	config.type === "stdio"
-		? new StdioClientTransport({
-				command: config.command,
-				args: config.args,
-				env: config.env,
-				cwd: config.cwd,
-				stderr: "inherit",
-			})
-		: httpTransport(config);
-
-export const createClient = (): Client =>
-	new Client({ name: "house-agents", version: "1.0.0" });
+/** The error a call to a server the user has to log in to again throws. */
+export const loginNeeded = (server: string): Error =>
+	new Error(
+		`MCP server "${server}" needs the user to log in again: /mcp_login ${server}`,
+	);
 
 /**
- * The tools of `server` the config allows, as `codemode` calls them;
- * `failure` gives the error a failed call throws.
+ * Connects to `server` with the tokens the user logged in with, if it needs
+ * them; `undefined` when it needs the user to log in first.
  */
-export const allowedTools = async (
+export const connectServer = async (
 	server: string,
 	config: ServerConfig,
+	tokens: TokenStore,
+): Promise<Client | undefined> => {
+	if (
+		config.type === "http" &&
+		config.oauth &&
+		!hasTokens(tokens, server, config.url)
+	) {
+		return undefined;
+	}
+
+	const transport =
+		config.type === "stdio"
+			? new StdioClientTransport({
+					command: config.command,
+					args: config.args,
+					env: config.env,
+					cwd: config.cwd,
+					stderr: "inherit",
+				})
+			: httpTransport(
+					config,
+					config.oauth &&
+						createOAuthProvider({
+							server,
+							url: config.url,
+							client: config.oauth,
+							store: tokens,
+						}),
+				);
+
+	const client = createClient();
+	try {
+		await client.connect(transport);
+		return client;
+	} catch (error) {
+		await client.close();
+		// The tokens expired and could not be refreshed.
+		if (error instanceof UnauthorizedError) return undefined;
+		throw error;
+	}
+};
+
+/** Every tool `server` offers, whoever may call it; `undefined` as above. */
+export const listServerTools = async (
+	server: string,
+	config: ServerConfig,
+	tokens: TokenStore,
+): Promise<McpTool[] | undefined> => {
+	const client = await connectServer(server, config, tokens);
+	if (!client) return undefined;
+	try {
+		return (await client.listTools()).tools;
+	} finally {
+		await client.close();
+	}
+};
+
+/** The tools of `server` in `allowed`, as `codemode` calls them. */
+export const allowedTools = async (
+	server: string,
+	allowed: readonly string[],
 	client: Client,
-	failure: (error: unknown) => Promise<unknown> = async (error) => error,
 ): Promise<CodemodeTool[]> => {
 	const { tools } = await client.listTools();
 
-	const missing = config.tools.filter(
+	const missing = allowed.filter(
 		(tool) => !tools.some((offered) => offered.name === tool),
 	);
 	if (missing.length > 0) {
@@ -82,9 +141,9 @@ export const allowedTools = async (
 	}
 
 	return tools
-		.filter((tool) => config.tools.includes(tool.name))
+		.filter((tool) => allowed.includes(tool.name))
 		.map(
-			(tool: McpTool): CodemodeTool => ({
+			(tool): CodemodeTool => ({
 				name: toolName(server, tool.name),
 				description: tool.description ?? tool.title ?? tool.name,
 				inputSchema: tool.inputSchema,
@@ -99,7 +158,9 @@ export const allowedTools = async (
 							)) as CallToolResult,
 						);
 					} catch (error) {
-						throw await failure(error);
+						throw error instanceof UnauthorizedError
+							? loginNeeded(server)
+							: error;
 					}
 				},
 			}),
@@ -112,12 +173,15 @@ export type Connection = {
 };
 
 /**
- * Connects to every server at once, for as long as the caller needs them:
- * `close` ends every connection, and so every stdio server's process. A server
- * that cannot be reached fails it all.
+ * Connects to every server of `policy` at once, for as long as the caller
+ * needs them: `close` ends every connection, and so every stdio server's
+ * process. A server the user has not logged in to is left out; one that
+ * cannot be reached fails it all.
  */
 export const connectServers = async (
+	policy: Policy,
 	servers: ReadonlyMap<string, ServerConfig>,
+	tokens: TokenStore,
 ): Promise<Connection> => {
 	const clients: Client[] = [];
 	const close = async () => {
@@ -126,11 +190,16 @@ export const connectServers = async (
 
 	try {
 		const tools = await Promise.all(
-			[...servers].map(async ([name, config]) => {
-				const client = createClient();
+			[...policy].map(async ([server, allowed]) => {
+				const config = servers.get(server);
+				if (!config) throw new Error(`No MCP server "${server}"`);
+				const client = await connectServer(server, config, tokens);
+				if (!client) {
+					console.warn(`MCP ${server}: left out until the user logs in`);
+					return [];
+				}
 				clients.push(client);
-				await client.connect(createTransport(config));
-				return allowedTools(name, config, client);
+				return allowedTools(server, allowed, client);
 			}),
 		);
 		return { tools: tools.flat(), close };

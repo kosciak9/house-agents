@@ -3,10 +3,9 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { harness, root } from "./agent/harness.ts";
 import { memory, sessionLimits } from "./agent/memory.ts";
 import { registry } from "./agent/registry.ts";
-import { oauthFile, servers } from "./mcp/config.ts";
+import { agentPolicy, servers, tokens } from "./mcp/config.ts";
 import { startMcp } from "./mcp/start.ts";
 import { keepSessions } from "./memory/keeper.ts";
-import { sendAuthorizationLink } from "./telegram/mcp-auth.ts";
 import { forwardToTelegram, startTelegram } from "./telegram/start.ts";
 
 await forwardToTelegram();
@@ -26,8 +25,8 @@ await keepSessions({
 const mcp = await startMcp({
 	registry,
 	servers,
-	oauthFile,
-	onAuthorizationNeeded: sendAuthorizationLink,
+	policy: agentPolicy,
+	tokens,
 });
 
 await startTelegram({ mcp });

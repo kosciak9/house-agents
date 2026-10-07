@@ -49,9 +49,9 @@ const stopProcess = async (child: ChildProcess): Promise<void> => {
  * Runs the real bot (`e2e/agent.ts`) as a separate process against the test
  * environment, as the agent `prompt` describes. Without `stateDir` it starts
  * from an empty state that is deleted
- * on `stop`. It uses no MCP servers or subagents unless `mcpServers` and
- * `subagents` list them; MCP servers'
- * OAuth tokens are kept in the state, so they survive a restart too. It signs
+ * on `stop`. It uses no MCP servers or subagents unless `mcpServers`, `mcp`
+ * and `subagents` give them; MCP servers' OAuth tokens are kept in the state,
+ * so they survive a restart too. It signs
  * in to model providers with the real credentials unless `credentialsFile`
  * names other ones.
  */
@@ -59,6 +59,7 @@ export const startBot = async ({
 	stateDir,
 	prompt = DEFAULT_PROMPT,
 	mcpServers = {},
+	mcp = {},
 	subagents = {},
 	credentialsFile = path.resolve("state/auth.json"),
 }: {
@@ -66,6 +67,8 @@ export const startBot = async ({
 	prompt?: string;
 	/** The config's `mcpServers`. */
 	mcpServers?: Record<string, unknown>;
+	/** The config's `mcp`. */
+	mcp?: Record<string, string[]>;
 	/** The config's `subagents`. */
 	subagents?: Record<string, unknown>;
 	credentialsFile?: string;
@@ -79,6 +82,7 @@ export const startBot = async ({
 	const config = {
 		prompt,
 		mcpServers,
+		mcp,
 		subagents,
 		stateDir: directory,
 		credentialsFile,

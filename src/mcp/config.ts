@@ -1,9 +1,11 @@
 import { config, stateFile } from "../config.ts";
+import { openTokenStore } from "./oauth.ts";
 
-// The MCP servers the agent may use come from its deployment's
-// `mcpServers`: `{ "<name>": <server>, ... }`. Each server lists the `tools`
-// the agent may call; every other tool of that server stays hidden. The config
-// is checked here again, since nothing type-checks it before it runs.
+// The MCP servers come from the deployment's `mcpServers`:
+// `{ "<name>": <server>, ... }`, and what each agent may use of them from its
+// policy: `{ "<server>": ["<tool>", ...], ... }`. Every other server and tool
+// stays hidden from that agent. The config is checked here again, since
+// nothing type-checks it before it runs.
 
 export type StdioServer = {
 	type: "stdio";
@@ -11,7 +13,6 @@ export type StdioServer = {
 	args: string[];
 	env: Record<string, string> | undefined;
 	cwd: string | undefined;
-	tools: string[];
 };
 
 export type OAuthClient = {
@@ -30,10 +31,12 @@ export type HttpServer = {
 	headers: Record<string, string>;
 	/** Set when the server authorizes the user through OAuth. */
 	oauth: OAuthClient | undefined;
-	tools: string[];
 };
 
 export type ServerConfig = StdioServer | HttpServer;
+
+/** The tools an agent may call, by server. */
+export type Policy = ReadonlyMap<string, readonly string[]>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
@@ -95,8 +98,6 @@ const parseOAuth = (value: unknown, field: string): OAuthClient | undefined => {
 const parseServer = (field: string, value: unknown): ServerConfig => {
 	if (!isRecord(value)) throw new Error(`${field} must be an object`);
 
-	const tools = stringArray(value.tools, `${field}.tools`);
-
 	if (typeof value.url === "string") {
 		return {
 			type: "http",
@@ -106,7 +107,6 @@ const parseServer = (field: string, value: unknown): ServerConfig => {
 					? {}
 					: stringRecord(value.headers, `${field}.headers`),
 			oauth: parseOAuth(value.oauth, `${field}.oauth`),
-			tools,
 		};
 	}
 
@@ -123,30 +123,45 @@ const parseServer = (field: string, value: unknown): ServerConfig => {
 					? undefined
 					: stringRecord(value.env, `${field}.env`),
 			cwd: optionalString(value.cwd, `${field}.cwd`),
-			tools,
 		};
 	}
 
 	throw new Error(`${field} needs a "url" or a "command"`);
 };
 
-/** The servers of an `mcpServers` object at `field` of the config. */
-export const parseServers = (
-	value: unknown,
-	field = "config.mcpServers",
-): Map<string, ServerConfig> => {
+const parseServers = (value: unknown): Map<string, ServerConfig> => {
 	if (value === undefined) return new Map();
-	if (!isRecord(value)) throw new Error(`${field} must be an object`);
+	if (!isRecord(value)) throw new Error("config.mcpServers must be an object");
 
 	return new Map(
 		Object.entries(value).map(([name, server]) => [
 			name,
-			parseServer(`${field}.${name}`, server),
+			parseServer(`config.mcpServers.${name}`, server),
 		]),
 	);
 };
 
-export const servers = parseServers(config().mcpServers);
+export const servers: ReadonlyMap<string, ServerConfig> = parseServers(
+	config().mcpServers,
+);
 
-/** Where OAuth clients and tokens of the servers are kept. */
-export const oauthFile = stateFile("mcp-oauth.json");
+/** The policy at `field` of the config, over the servers it names. */
+export const parsePolicy = (value: unknown, field: string): Policy => {
+	if (value === undefined) return new Map();
+	if (!isRecord(value)) throw new Error(`${field} must be an object`);
+
+	return new Map(
+		Object.entries(value).map(([server, tools]) => {
+			if (!servers.has(server)) {
+				throw new Error(`${field}.${server}: no such server in mcpServers`);
+			}
+			return [server, stringArray(tools, `${field}.${server}`)];
+		}),
+	);
+};
+
+/** What the agent itself may use. */
+export const agentPolicy = parsePolicy(config().mcp, "config.mcp");
+
+/** OAuth clients and tokens of the servers, shared by every connection. */
+export const tokens = openTokenStore(stateFile("mcp-oauth.json"));

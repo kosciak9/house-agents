@@ -1,6 +1,12 @@
 import { type Config, readConfigFile, useConfig } from "./config.ts";
 
-export type { Config, McpServer, Model, Subagent } from "./config.ts";
+export type {
+	Config,
+	McpPolicy,
+	McpServer,
+	Model,
+	Subagent,
+} from "./config.ts";
 
 /**
  * Runs the agent until the process ends, as `config` describes or, without

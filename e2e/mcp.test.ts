@@ -1,18 +1,26 @@
 // Contract: the agent uses the tools of the MCP servers its deployment lists
 // in its config, over stdio, over HTTP with an API key header, and over HTTP
-// with OAuth, and only the tools each server allows. For the OAuth server the
-// bot itself sends the user its authorization link; the user approves and
-// sends the address the browser ends up on with /mcp_auth, after which its
-// tools work, also after a full restart without asking again. Nothing of the
-// bot is reachable from outside. Subagents run in the background, several at
-// once, each on a stdio server started for it alone and stopped once it has
-// answered, and the agent gets their answers.
+// with OAuth, and only the tools its policy allows. /mcp lists the servers,
+// their state and who uses them; /mcp <server> lists its tools, the allowed
+// ones marked. An OAuth server offers nothing until the user logs in:
+// /mcp_login sends the link, the user approves and sends the address the
+// browser ends up on, after which its tools work, also after a full restart
+// without asking again. Nothing of the bot is reachable from outside.
+// Subagents run in the background, several at once, each on a stdio server
+// of its policy started for it alone and stopped once it has answered, and
+// the agent gets their answers.
 // Runs its own bot processes on one session, next to two test MCP servers
 // (`e2e/mcp/server.ts`) on HTTP; the bot starts the stdio one itself. The
 // OAuth server is its own authorization server and approves at once, so
 // fetching the link stands in for the user's consent.
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -29,7 +37,6 @@ import {
 	botUsername,
 	connectTestUser,
 	sendAndWaitForReply,
-	waitForBotMessage,
 } from "./telegram/client.ts";
 
 const MINUTE = 60_000;
@@ -58,30 +65,23 @@ const startMcpBot = () =>
 			remote: {
 				url: httpServer.url,
 				headers: { Authorization: `Bearer ${apiKey}` },
-				tools: ["get_word"],
 			},
 			local: {
 				...STDIO_SERVER,
 				env: { WORD: stdioWord, VISIT_FILE: visitFile },
-				tools: ["get_word"],
 			},
-			secure: { url: oauthServer.url, oauth: true, tools: ["get_word"] },
+			secure: { url: oauthServer.url, oauth: true },
+			words: {
+				...STDIO_SERVER,
+				env: { WORD: scoutWord, VISIT_FILE: visitFile, LIFE_FILE: lifeFile },
+			},
 		},
+		mcp: { remote: ["get_word"], local: ["get_word"], secure: ["get_word"] },
 		subagents: {
 			zwiadowca: {
 				description: "Pobiera słowo ze swojego serwera.",
 				prompt: DEFAULT_PROMPT,
-				mcpServers: {
-					words: {
-						...STDIO_SERVER,
-						env: {
-							WORD: scoutWord,
-							VISIT_FILE: visitFile,
-							LIFE_FILE: lifeFile,
-						},
-						tools: ["get_word"],
-					},
-				},
+				mcp: { words: ["get_word"] },
 			},
 		},
 	});
@@ -123,16 +123,35 @@ test("mcp: allowed tools work over stdio, HTTP and OAuth, others are hidden", {
 	let link = "";
 	let redirect = "";
 
-	await t.test("sends the OAuth authorization link on start", async () => {
+	await t.test(
+		"/mcp lists the servers, who uses them, and logins",
+		async () => {
+			runningBot = await startMcpBot();
+			const list = await sendAndWaitForReply(client, bot, "/mcp");
+			assert.match(list, /^secure: 🔒 wymaga logowania; dla: agent$/m);
+			assert.match(list, /^local: ✓ połączony; dla: agent$/m);
+			assert.match(list, /^words: .*; dla: zwiadowca$/m);
+			// A subagent's server runs only while a subagent does.
+			assert.equal(existsSync(lifeFile), false);
+		},
+	);
+
+	await t.test(
+		"/mcp <server> lists its tools, the allowed ones marked",
+		async () => {
+			const tools = await sendAndWaitForReply(client, bot, "/mcp words");
+			assert.match(tools, /^✓ get_word \(zwiadowca\)$/m);
+			assert.match(tools, /^· record_visit$/m);
+		},
+	);
+
+	await t.test("/mcp_login sends the link to approve at", async () => {
 		const authorizeUrl = new RegExp(
 			`${new URL(oauthServer.url).origin.replace(/\./g, "\\.")}/authorize\\?[^\\s)]+`,
 		);
-		const message = waitForBotMessage(client, bot, {
-			matches: (text) => authorizeUrl.test(text),
-			timeoutMs: 2 * MINUTE,
-		});
-		runningBot = await startMcpBot();
-		link = authorizeUrl.exec(await message)?.[0] ?? "";
+		const reply = await sendAndWaitForReply(client, bot, "/mcp_login secure");
+		link = authorizeUrl.exec(reply)?.[0] ?? "";
+		assert.ok(link, reply);
 	});
 
 	await t.test(
@@ -145,13 +164,9 @@ test("mcp: allowed tools work over stdio, HTTP and OAuth, others are hidden", {
 		},
 	);
 
-	await t.test("/mcp_auth with the redirect address authorizes", async () => {
-		const reply = await sendAndWaitForReply(
-			client,
-			bot,
-			`/mcp_auth ${redirect}`,
-		);
-		assert.match(reply, /„secure” autoryzowany/);
+	await t.test("sending the redirect address logs in", async () => {
+		const reply = await sendAndWaitForReply(client, bot, redirect);
+		assert.match(reply, /Zalogowano do „secure”/);
 	});
 
 	await t.test("calls a tool over OAuth", async () => {
@@ -167,7 +182,8 @@ test("mcp: allowed tools work over stdio, HTTP and OAuth, others are hidden", {
 	});
 
 	await t.test("subagents run at once, on servers of their own", async () => {
-		assert.equal(existsSync(lifeFile), false);
+		// Only what the subagents start; listing its tools started it before.
+		writeFileSync(lifeFile, "");
 		await sendAndWaitForReply(
 			client,
 			bot,

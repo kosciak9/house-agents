@@ -1,5 +1,6 @@
 import { createRegistry } from "@earendil-works/pi-durable";
 
+import { servers, tokens } from "../mcp/config.ts";
 import { createProgressExtension } from "../progress/extension.ts";
 import { SchedulerExtension } from "../scheduler/extension.ts";
 import { subagents } from "../subagents/config.ts";
@@ -16,5 +17,7 @@ registry.install(memory.extension);
 registry.install(SchedulerExtension);
 registry.install(createProgressExtension(publishProgress));
 if (subagents.size > 0) {
-	registry.install(createSubagentExtension({ registry, subagents }));
+	registry.install(
+		createSubagentExtension({ registry, subagents, servers, tokens }),
+	);
 }
