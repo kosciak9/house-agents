@@ -5,7 +5,7 @@
 	"version": "1.0.0",
 	"private": true,
 	"license": "MIT",
-	"packageManager": "pnpm@12.9.1",
+	"packageManager": "pnpm@12.9.0",
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.15",
 		"@types/node": "^26.6.4",
@@ -24,7 +24,8 @@
 		"grammy": "^1.46.0"
 	},
 	"scripts": {
-		"check": "biome check . && tsc",
+		"check": "biome check . && tsc && node scripts/versions.ts",
+		"versions": "node scripts/versions.ts",
 		"dev": "tsx --env-file-if-exists=.env src/main.ts",
 		"e2e:login": "tsx --env-file-if-exists=.env e2e/telegram/login.ts",
 		"e2e": "tsx e2e/run.ts",

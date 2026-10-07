@@ -16,7 +16,8 @@ thread. Don't design for multiple users, chats or parallel threads.
 
 ## Verify
 
-- After every change: `pnpm check` (biome + tsc) and `pnpm e2e:smoke`
+- After every change: `pnpm check` (biome, tsc, and node/pnpm in the Containerfile
+  and `packageManager` matching devenv: `pnpm versions`) and `pnpm e2e:smoke`
   (seconds). When the change touches a contract an E2E file covers, also that
   file: `pnpm e2e conversation` runs `e2e/conversation.test.ts`;
   `--grep <pattern>` filters test names.
