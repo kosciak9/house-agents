@@ -4,6 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import type { Model } from "../src/index.ts";
+
 /** The agent's prompt; tests describe their agent here, never in the repo. */
 export const DEFAULT_PROMPT =
 	"Jesteś asystentem w teście E2E. Odpowiadasz zwięźle po polsku. " +
@@ -53,11 +55,13 @@ const stopProcess = async (child: ChildProcess): Promise<void> => {
  * and `subagents` give them; MCP servers' OAuth tokens are kept in the state,
  * so they survive a restart too. It signs
  * in to model providers with the real credentials unless `credentialsFile`
- * names other ones.
+ * names other ones. `model` and `fallbackModel` replace `e2e/agent.ts`'s.
  */
 export const startBot = async ({
 	stateDir,
 	prompt = DEFAULT_PROMPT,
+	model,
+	fallbackModel,
 	mcpServers = {},
 	mcp = {},
 	subagents = {},
@@ -65,6 +69,10 @@ export const startBot = async ({
 }: {
 	stateDir?: string;
 	prompt?: string;
+	/** The config's `model`. */
+	model?: Model;
+	/** The config's `fallbackModel`. */
+	fallbackModel?: Model;
 	/** The config's `mcpServers`. */
 	mcpServers?: Record<string, unknown>;
 	/** The config's `mcp`. */
@@ -81,6 +89,8 @@ export const startBot = async ({
 
 	const config = {
 		prompt,
+		...(model && { model }),
+		...(fallbackModel && { fallbackModel }),
 		mcpServers,
 		mcp,
 		subagents,

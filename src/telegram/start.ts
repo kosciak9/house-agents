@@ -2,6 +2,7 @@ import { harness, root } from "../agent/harness.ts";
 import type { Mcp } from "../mcp/start.ts";
 import { bot, chatId, environment } from "./bot.ts";
 import { createDiagnosticsCommand } from "./diagnostics.ts";
+import { announceModelSwitches } from "./fallback.ts";
 import {
 	handlePhotoMessage,
 	handleResetCommand,
@@ -23,9 +24,14 @@ import {
 } from "./mcp.ts";
 import { forwardAssistantMessages } from "./outbound.ts";
 
-/** Sends every answer of the conversation to the chat. */
-export const forwardToTelegram = (): Promise<void> =>
-	forwardAssistantMessages(harness, root.id);
+/**
+ * Sends every answer of the conversation to the chat, and a word whenever the
+ * agent turns to its fallback model or back.
+ */
+export const forwardToTelegram = (): Promise<void> => {
+	announceModelSwitches();
+	return forwardAssistantMessages(harness, root.id);
+};
 
 /** Starts taking messages from the chat. */
 export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {

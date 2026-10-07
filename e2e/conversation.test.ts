@@ -2,7 +2,9 @@
 // prompt says; it hears voice messages (photos: `e2e/photo.test.ts`). A
 // full process restart keeps the conversation and its pending wake-ups: one
 // that fell due while the bot was down reaches the chat once it is back.
-// After /reset ends the conversation and starts a new context, the agent
+// It comes back on a model that fails, xAI's, which E2E never logs in to:
+// the chat hears so, and the fallback model answers in its place from then
+// on. After /reset ends the conversation and starts a new context, the agent
 // still knows what it was told, down to details its memory has no room for.
 // Runs its own bot processes on one session that outlives each of them; the
 // steps build on each other, so they run as one chain.
@@ -92,7 +94,7 @@ after(async () => {
 	rmSync(directory, { recursive: true, force: true });
 });
 
-test("conversation: persona, voice, restart and reset", {
+test("conversation: persona, voice, restart, fallback and reset", {
 	timeout: 8 * MINUTE,
 }, async (t) => {
 	await t.test("introduces itself by its prompt's name", async () => {
@@ -126,14 +128,26 @@ test("conversation: persona, voice, restart and reset", {
 		);
 	});
 
-	await t.test("delivers the missed wake-up after restart", async () => {
-		const ticked = waitForBotMessage(client, bot, {
-			matches: isTick,
-			timeoutMs: 2 * MINUTE,
-		});
-		runningBot = await startBot({ stateDir: directory, prompt: PROMPT });
-		await ticked;
-	});
+	await t.test(
+		"delivers the missed wake-up after restart, on the fallback",
+		async () => {
+			const ticked = waitForBotMessage(client, bot, {
+				matches: isTick,
+				timeoutMs: 2 * MINUTE,
+			});
+			const warned = waitForBotMessage(client, bot, {
+				matches: (text) => /xai\/grok-4\.7.*gpt-6-luna/is.test(text),
+				timeoutMs: 2 * MINUTE,
+			});
+			runningBot = await startBot({
+				stateDir: directory,
+				prompt: PROMPT,
+				model: { provider: "xai", modelId: "grok-4.7" },
+				fallbackModel: { provider: "openai-codex", modelId: "gpt-6-luna" },
+			});
+			await Promise.all([ticked, warned]);
+		},
+	);
 
 	await t.test("still knows the conversation after restart", async () => {
 		assert.match(

@@ -75,6 +75,12 @@ export type Config = {
 	prompt: string;
 	/** The model the agent talks on, e.g. `openai-codex` `gpt-6.1-sol`. */
 	model: Model;
+	/**
+	 * Answers in its place whenever a request to `model` fails, e.g. `xai`
+	 * `grok-4.7`; the next request tries `model` again. The chat hears when
+	 * the agent turns to it and when `model` answers again.
+	 */
+	fallbackModel?: Model;
 	telegram: {
 		/** The one chat the bot serves; it ignores every other one. */
 		chatId: number;
@@ -124,6 +130,13 @@ export const useConfig = (value: Config): void => {
 		typeof value.model.modelId !== "string"
 	) {
 		throw new Error("config.model needs a provider and a modelId");
+	}
+	if (
+		value.fallbackModel !== undefined &&
+		(typeof value.fallbackModel?.provider !== "string" ||
+			typeof value.fallbackModel.modelId !== "string")
+	) {
+		throw new Error("config.fallbackModel needs a provider and a modelId");
 	}
 	if (!Number.isSafeInteger(value.telegram?.chatId)) {
 		throw new Error("config.telegram.chatId must be an integer chat id");
