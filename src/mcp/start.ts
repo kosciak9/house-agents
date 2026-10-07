@@ -14,6 +14,8 @@ export type Mcp = {
 	reconnect: (server: string) => Promise<void>;
 	/** How the agent's connection to `server` stands; `undefined` if it has none. */
 	status: (server: string) => ServerStatus | undefined;
+	/** The names the agent's `codemode` scripts call its tools by. */
+	tools: () => string[];
 };
 
 /**
@@ -81,5 +83,6 @@ export const startMcp = async ({
 	return {
 		reconnect: connect,
 		status: (server) => statuses.get(server),
+		tools: () => [...serverTools.values()].flat().map((tool) => tool.name),
 	};
 };

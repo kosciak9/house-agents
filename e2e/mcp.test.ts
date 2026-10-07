@@ -5,7 +5,8 @@
 // ones marked. An OAuth server offers nothing until the user logs in:
 // /mcp_login sends the link, the user approves and sends the address the
 // browser ends up on, after which its tools work, also after a full restart
-// without asking again. Nothing of the bot is reachable from outside.
+// without asking again; the link and the address are deleted from the chat.
+// /diagnostics tools lists the tools of the agent and of each subagent. Nothing of the bot is reachable from outside.
 // Subagents run in the background, several at once, each on a stdio server
 // of its policy started for it alone and stopped once it has answered, and
 // the agent gets their answers.
@@ -36,6 +37,7 @@ import {
 import {
 	botUsername,
 	connectTestUser,
+	recentMessages,
 	sendAndWaitForReply,
 } from "./telegram/client.ts";
 
@@ -166,7 +168,25 @@ test("mcp: allowed tools work over stdio, HTTP and OAuth, others are hidden", {
 
 	await t.test("sending the redirect address logs in", async () => {
 		const reply = await sendAndWaitForReply(client, bot, redirect);
-		assert.match(reply, /Zalogowano do „secure”/);
+		assert.match(reply, /Połączono z „secure”/);
+	});
+
+	await t.test("the link and the address leave the chat", async () => {
+		const texts = (await recentMessages(client, bot)).join("\n");
+		// The history reaches back past the link.
+		assert.match(texts, /^\/mcp_login secure$/m);
+		assert.doesNotMatch(texts, /\/authorize\?/);
+		assert.doesNotMatch(texts, /mcp-oauth\/callback/);
+	});
+
+	await t.test("/diagnostics tools lists every agent's tools", async () => {
+		const tools = await sendAndWaitForReply(client, bot, "/diagnostics tools");
+		assert.match(tools, /^· codemode: .*secure__get_word/m);
+		assert.match(tools, /^· subagent$/m);
+		assert.match(
+			tools,
+			/^zwiadowca \(gdy pracuje\):\n· codemode: words__get_word$/m,
+		);
 	});
 
 	await t.test("calls a tool over OAuth", async () => {

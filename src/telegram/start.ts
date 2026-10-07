@@ -1,6 +1,7 @@
 import { harness, root } from "../agent/harness.ts";
 import type { Mcp } from "../mcp/start.ts";
 import { bot, chatId, environment } from "./bot.ts";
+import { createDiagnosticsCommand } from "./diagnostics.ts";
 import {
 	handlePhotoMessage,
 	handleResetCommand,
@@ -31,6 +32,7 @@ export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 	const chat = bot.filter((ctx) => ctx.chat?.id === chatId);
 	// Commands are for the bot itself; they never reach the agent.
 	chat.command("mcp", createMcpCommand(mcp));
+	chat.command("diagnostics", createDiagnosticsCommand(mcp));
 	chat.command(LOGIN_COMMAND, createLoginCommand(mcp));
 	chat.command("login", handleLoginCommand);
 	chat.command("logout", handleLogoutCommand);

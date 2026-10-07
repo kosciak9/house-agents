@@ -16,7 +16,9 @@ import { createOAuthProvider, hasTokens, type TokenStore } from "./oauth.ts";
 
 const CALL_TIMEOUT_MS = 5 * 60_000;
 
-const toolName = (server: string, tool: string): string => `${server}__${tool}`;
+/** How `codemode` scripts call `tool` of `server`. */
+export const toolName = (server: string, tool: string): string =>
+	`${server}__${tool}`;
 
 const partText = (part: CallToolResult["content"][number]): string => {
 	switch (part.type) {

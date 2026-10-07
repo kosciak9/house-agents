@@ -196,6 +196,23 @@ const sendContentAndWaitForReply = async (
 	return reply;
 };
 
+/** The texts of the newest messages in the chat with the bot, newest first. */
+export const recentMessages = async (
+	client: tdl.Client,
+	bot: string,
+	limit = 10,
+): Promise<string[]> => {
+	const { messages } = await client.invoke({
+		_: "getChatHistory",
+		chat_id: await botChatId(client, bot),
+		from_message_id: 0,
+		offset: 0,
+		limit,
+		only_local: false,
+	});
+	return messages.flatMap((message) => (message ? [messageText(message)] : []));
+};
+
 /** Sends `text` to the bot without waiting for a reply, e.g. a command. */
 export const sendToBot = async (
 	client: tdl.Client,

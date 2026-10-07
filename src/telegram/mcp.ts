@@ -12,6 +12,7 @@ import { type McpLogin, startLogin } from "../mcp/login.ts";
 import { hasTokens } from "../mcp/oauth.ts";
 import type { Mcp } from "../mcp/start.ts";
 import { subagents } from "../subagents/config.ts";
+import { chatId } from "./bot.ts";
 
 // The MCP servers between the user and the chat, past the agent: `/mcp`
 // lists them, `/mcp <server>` shows its tools and who may call each, and
@@ -111,7 +112,7 @@ export const createMcpCommand =
 		}
 	};
 
-type Login = McpLogin & { server: string };
+type Login = McpLogin & { server: string; linkMessageId: number };
 
 let login: Login | undefined;
 
@@ -138,13 +139,13 @@ export const createLoginCommand =
 				await ctx.reply(`Serwer „${server}” jest już zalogowany.`);
 				return;
 			}
-			login = { ...started, server };
-			await ctx.reply(
+			const link = await ctx.reply(
 				`Zaloguj się do „${server}”:\n${started.url.href}\n\n` +
 					"Po zatwierdzeniu przeglądarka otworzy stronę, która się nie " +
 					"załaduje. Wyślij tutaj jej pełny adres. /cancel przerywa.",
 				{ link_preview_options: { is_disabled: true } },
 			);
+			login = { ...started, server, linkMessageId: link.message_id };
 		} catch (error) {
 			console.error(`MCP ${server}: login failed:`, error);
 			await ctx.reply(`Nie udało się zacząć logowania do „${server}”.`);
@@ -182,7 +183,13 @@ export const createLoginAnswer =
 		try {
 			await current.finish(redirect);
 			await mcp.reconnect(current.server);
-			await ctx.reply(`Zalogowano do „${current.server}”.`);
+			// The link and the address carry the login; neither stays in the chat.
+			await ctx.api
+				.deleteMessages(chatId, [current.linkMessageId, ctx.message.message_id])
+				.catch((error) =>
+					console.error("Deleting the login messages failed:", error),
+				);
+			await ctx.reply(`Połączono z „${current.server}”.`);
 		} catch (error) {
 			console.error(`MCP ${current.server}: login failed:`, error);
 			await ctx.reply(
