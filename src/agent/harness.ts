@@ -3,12 +3,26 @@ import { Harness } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 
 import { config, stateFile } from "../config.ts";
+import { isSubagentRun } from "../subagents/extension.ts";
 import { models } from "./models.ts";
 import { registry } from "./registry.ts";
 
 export const harness = await Harness.open(
 	await openNodeSqliteStorage(stateFile("session.sqlite")),
-	{ models, registry },
+	{
+		models,
+		registry,
+		onReport: (error) => console.error("Harness:", error),
+		settings: {
+			// Every installed extension but the subagents' own, read at every use.
+			get extensions() {
+				return registry
+					.snapshot()
+					.installed()
+					.filter((extension) => !isSubagentRun(extension));
+			},
+		},
+	},
 	BACKGROUND_CONTEXT,
 );
 

@@ -1,6 +1,7 @@
 // A tiny MCP server the E2E bot connects to, over stdio (`stdio`) or
 // Streamable HTTP (`http`, prints `listening on <port>`). `get_word` returns
-// WORD; `record_visit` appends to VISIT_FILE, so a test can tell it was called.
+// WORD; `record_visit` appends to VISIT_FILE, so a test can tell it was called
+// (LIFE_FILE: below).
 // Over HTTP it answers only requests with `Authorization: Bearer <API_KEY>`,
 // or, with OAUTH=1, with a token it issued as its own OAuth authorization
 // server, which approves every authorization at once.
@@ -196,8 +197,22 @@ const serveHttp = ({
 	});
 };
 
+// Over stdio with LIFE_FILE, it appends `start <pid>` there when it starts and
+// `exit <pid>` when its client lets it go, so a test can tell how many ran.
+const recordLife = (event: "start" | "exit") => {
+	const lifeFile = process.env.LIFE_FILE;
+	if (lifeFile) appendFileSync(lifeFile, `${event} ${process.pid}\n`);
+};
+
 const mode = process.argv[2];
 if (mode === "stdio") {
+	recordLife("start");
+	const exit = () => {
+		recordLife("exit");
+		process.exit(0);
+	};
+	process.stdin.once("end", exit);
+	process.once("SIGTERM", exit);
 	await createMcpServer().connect(new StdioServerTransport());
 } else if (mode === "http") {
 	serveHttp({

@@ -37,16 +37,37 @@ export type McpServer = {
 	  }
 );
 
+export type Model = {
+	provider: string;
+	modelId: string;
+	/** "off" by default. */
+	thinkingLevel?: ModelThinkingLevel;
+};
+
+/**
+ * An agent the agent hands tasks to in the background, one subagent per task,
+ * and hears back from once they are all done.
+ */
+export type Subagent = {
+	/** What it is for; the agent picks it by this. */
+	description: string;
+	/** Its system prompt; it knows nothing else of the conversation. */
+	prompt: string;
+	/** The agent's model by default. */
+	model?: Model;
+	/**
+	 * Only its own: hidden from the agent. Every subagent connects to them anew
+	 * and closes them when it is done, so each one started over stdio runs
+	 * only for that subagent, e.g. a browser of its own. No OAuth.
+	 */
+	mcpServers?: Record<string, McpServer>;
+};
+
 export type Config = {
 	/** Who the agent is: the system prompt that opens its conversation. */
 	prompt: string;
 	/** The model the agent talks on, e.g. `openai-codex` `gpt-6.1-sol`. */
-	model: {
-		provider: string;
-		modelId: string;
-		/** "off" by default. */
-		thinkingLevel?: ModelThinkingLevel;
-	};
+	model: Model;
 	telegram: {
 		/** The one chat the bot serves; it ignores every other one. */
 		chatId: number;
@@ -57,6 +78,8 @@ export type Config = {
 	whisperUrl: string;
 	/** The MCP servers the agent may use, by name. */
 	mcpServers?: Record<string, McpServer>;
+	/** The subagents the agent may start, by name. */
+	subagents?: Record<string, Subagent>;
 	/** Where the agent keeps its session and tokens; `state` by default. */
 	stateDir?: string;
 	/** Model provider logins; `<stateDir>/auth.json` by default. */

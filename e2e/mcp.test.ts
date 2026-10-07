@@ -4,20 +4,22 @@
 // bot itself sends the user its authorization link; the user approves and
 // sends the address the browser ends up on with /mcp_auth, after which its
 // tools work, also after a full restart without asking again. Nothing of the
-// bot is reachable from outside.
+// bot is reachable from outside. Subagents run in the background, several at
+// once, each on a stdio server started for it alone and stopped once it has
+// answered, and the agent gets their answers.
 // Runs its own bot processes on one session, next to two test MCP servers
 // (`e2e/mcp/server.ts`) on HTTP; the bot starts the stdio one itself. The
 // OAuth server is its own authorization server and approves at once, so
 // fetching the link stands in for the user's consent.
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 
 import type { Client } from "tdl";
 
-import { type RunningBot, startBot } from "./bot.ts";
+import { DEFAULT_PROMPT, type RunningBot, startBot } from "./bot.ts";
 import {
 	type RunningMcpServer,
 	STDIO_SERVER,
@@ -36,10 +38,12 @@ const runId = Date.now().toString(36).toUpperCase();
 const httpWord = `ZDALNE-${runId}`;
 const stdioWord = `LOKALNE-${runId}`;
 const oauthWord = `CHRONIONE-${runId}`;
+const scoutWord = `ZWIAD-${runId}`;
 const apiKey = `key-${runId}`;
 
 const directory = mkdtempSync(path.join(tmpdir(), "e2e-mcp-"));
 const visitFile = path.join(directory, "visits.txt");
+const lifeFile = path.join(directory, "scout-servers.txt");
 
 let httpServer: RunningMcpServer;
 let oauthServer: RunningMcpServer;
@@ -62,6 +66,23 @@ const startMcpBot = () =>
 				tools: ["get_word"],
 			},
 			secure: { url: oauthServer.url, oauth: true, tools: ["get_word"] },
+		},
+		subagents: {
+			zwiadowca: {
+				description: "Pobiera słowo ze swojego serwera.",
+				prompt: DEFAULT_PROMPT,
+				mcpServers: {
+					words: {
+						...STDIO_SERVER,
+						env: {
+							WORD: scoutWord,
+							VISIT_FILE: visitFile,
+							LIFE_FILE: lifeFile,
+						},
+						tools: ["get_word"],
+					},
+				},
+			},
 		},
 	});
 
@@ -97,7 +118,7 @@ after(async () => {
 });
 
 test("mcp: allowed tools work over stdio, HTTP and OAuth, others are hidden", {
-	timeout: 6 * MINUTE,
+	timeout: 9 * MINUTE,
 }, async (t) => {
 	let link = "";
 	let redirect = "";
@@ -143,6 +164,26 @@ test("mcp: allowed tools work over stdio, HTTP and OAuth, others are hidden", {
 
 	await t.test("calls a tool over stdio", async () => {
 		assert.match(await askForWord("local"), new RegExp(stdioWord));
+	});
+
+	await t.test("subagents run at once, on servers of their own", async () => {
+		assert.equal(existsSync(lifeFile), false);
+		await sendAndWaitForReply(
+			client,
+			bot,
+			"Uruchom naraz dwa subagenty zwiadowca, każdy z zadaniem: pobierz " +
+				"słowo narzędziem get_word i odpowiedz samym słowem. " +
+				"Gdy odpowiedzą, podaj mi to słowo.",
+			{
+				matches: (text) => text.includes(scoutWord),
+				timeoutMs: 3 * MINUTE,
+			},
+		);
+		const life = readFileSync(lifeFile, "utf8");
+		const started = [...life.matchAll(/^start (\d+)$/gm)].map((m) => m[1]);
+		const exited = [...life.matchAll(/^exit (\d+)$/gm)].map((m) => m[1]);
+		assert.equal(new Set(started).size, 2);
+		assert.deepEqual(new Set(exited), new Set(started));
 	});
 
 	await t.test("cannot call a tool the server does not allow", async () => {

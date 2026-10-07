@@ -92,8 +92,7 @@ const parseOAuth = (value: unknown, field: string): OAuthClient | undefined => {
 	};
 };
 
-const parseServer = (name: string, value: unknown): ServerConfig => {
-	const field = `config.mcpServers.${name}`;
+const parseServer = (field: string, value: unknown): ServerConfig => {
 	if (!isRecord(value)) throw new Error(`${field} must be an object`);
 
 	const tools = stringArray(value.tools, `${field}.tools`);
@@ -131,14 +130,18 @@ const parseServer = (name: string, value: unknown): ServerConfig => {
 	throw new Error(`${field} needs a "url" or a "command"`);
 };
 
-const parseServers = (value: unknown): Map<string, ServerConfig> => {
+/** The servers of an `mcpServers` object at `field` of the config. */
+export const parseServers = (
+	value: unknown,
+	field = "config.mcpServers",
+): Map<string, ServerConfig> => {
 	if (value === undefined) return new Map();
-	if (!isRecord(value)) throw new Error("config.mcpServers must be an object");
+	if (!isRecord(value)) throw new Error(`${field} must be an object`);
 
 	return new Map(
 		Object.entries(value).map(([name, server]) => [
 			name,
-			parseServer(name, server),
+			parseServer(`${field}.${name}`, server),
 		]),
 	);
 };
