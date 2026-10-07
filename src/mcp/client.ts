@@ -35,13 +35,28 @@ const partText = (part: CallToolResult["content"][number]): string => {
 	}
 };
 
-// What a script gets back: the structured result when the tool declares one,
-// its text otherwise.
-const scriptValue = (result: CallToolResult): unknown => {
-	const text = result.content.map(partText).join("\n");
-	if (result.isError) throw new Error(text || "The tool failed");
-	return result.structuredContent ?? text;
+// A script gets the whole result back, so it sees the images a tool returns
+// as well as its text and structured result; a failure throws.
+const scriptValue = (result: CallToolResult): CallToolResult => {
+	if (result.isError) {
+		const text = result.content.map(partText).join("\n");
+		throw new Error(text || "The tool failed");
+	}
+	return result;
 };
+
+// Declared as MCP's `CallToolResult`, which `renderDeclarations` types with
+// the tool's own structured result.
+const resultSchema = (structured?: McpTool["outputSchema"]) => ({
+	type: "object",
+	properties: {
+		content: { type: "array", items: { type: "object" } },
+		isError: { type: "boolean" },
+		_meta: { type: "object" },
+		...(structured && { structuredContent: structured }),
+	},
+	required: ["content"],
+});
 
 export const createClient = (): Client =>
 	new Client({ name: "house-agents", version: "1.0.0" });
@@ -149,7 +164,7 @@ export const allowedTools = async (
 				name: toolName(server, tool.name),
 				description: tool.description ?? tool.title ?? tool.name,
 				inputSchema: tool.inputSchema,
-				outputSchema: tool.outputSchema ?? { type: "string" },
+				outputSchema: resultSchema(tool.outputSchema),
 				execute: async (args, { signal }) => {
 					try {
 						return scriptValue(

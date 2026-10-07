@@ -7,6 +7,7 @@
 // browser ends up on, after which its tools work, also after a full restart
 // without asking again; the link and the address are deleted from the chat.
 // /diagnostics tools lists the tools of the agent and of each subagent. Nothing of the bot is reachable from outside.
+// The agent sees the images a tool returns.
 // Subagents run in the background, several at once, each on a stdio server
 // of its policy started for it alone and stopped once it has answered, and
 // the agent gets their answers.
@@ -29,6 +30,7 @@ import { after, before, test } from "node:test";
 import type { Client } from "tdl";
 
 import { DEFAULT_PROMPT, type RunningBot, startBot } from "./bot.ts";
+import { COLORS } from "./image.ts";
 import {
 	type RunningMcpServer,
 	STDIO_SERVER,
@@ -49,6 +51,8 @@ const stdioWord = `LOKALNE-${runId}`;
 const oauthWord = `CHRONIONE-${runId}`;
 const scoutWord = `ZWIAD-${runId}`;
 const apiKey = `key-${runId}`;
+// Random per run, so the agent cannot pass by guessing the same color.
+const color = COLORS[Math.floor(Math.random() * COLORS.length)] ?? COLORS[0];
 
 const directory = mkdtempSync(path.join(tmpdir(), "e2e-mcp-"));
 const visitFile = path.join(directory, "visits.txt");
@@ -78,7 +82,11 @@ const startMcpBot = () =>
 				env: { WORD: scoutWord, VISIT_FILE: visitFile, LIFE_FILE: lifeFile },
 			},
 		},
-		mcp: { remote: ["get_word"], local: ["get_word"], secure: ["get_word"] },
+		mcp: {
+			remote: ["get_word", "get_picture"],
+			local: ["get_word"],
+			secure: ["get_word"],
+		},
 		subagents: {
 			zwiadowca: {
 				description: "Pobiera słowo ze swojego serwera.",
@@ -99,6 +107,7 @@ const askForWord = (server: string) =>
 before(async () => {
 	httpServer = await startHttpMcpServer({
 		WORD: httpWord,
+		PICTURE: color.rgb.join(","),
 		VISIT_FILE: visitFile,
 		API_KEY: apiKey,
 	});
@@ -195,6 +204,17 @@ test("mcp: allowed tools work over stdio, HTTP and OAuth, others are hidden", {
 
 	await t.test("calls a tool over HTTP with the API key", async () => {
 		assert.match(await askForWord("remote"), new RegExp(httpWord));
+	});
+
+	await t.test("sees the image a tool returns", async () => {
+		const reply = await sendAndWaitForReply(
+			client,
+			bot,
+			"Użyj narzędzia get_picture serwera remote. Jaki kolor ma obrazek? " +
+				"Odpowiedz jednym słowem po polsku.",
+			{ timeoutMs: 2 * MINUTE },
+		);
+		assert.match(reply, color.answer);
 	});
 
 	await t.test("calls a tool over stdio", async () => {

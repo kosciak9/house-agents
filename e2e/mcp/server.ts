@@ -1,6 +1,7 @@
 // A tiny MCP server the E2E bot connects to, over stdio (`stdio`) or
 // Streamable HTTP (`http`, prints `listening on <port>`). `get_word` returns
-// WORD; `record_visit` appends to VISIT_FILE, so a test can tell it was called
+// WORD; `get_picture` a PNG of the color PICTURE (`r,g,b`), as an image only;
+// `record_visit` appends to VISIT_FILE, so a test can tell it was called
 // (LIFE_FILE: below).
 // Over HTTP it answers only requests with `Authorization: Bearer <API_KEY>`,
 // or, with OAUTH=1, with a token it issued as its own OAuth authorization
@@ -21,6 +22,8 @@ import {
 	CallToolRequestSchema,
 	ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+
+import { solidPng } from "../image.ts";
 
 const requireEnv = (name: string): string => {
 	const value = process.env[name];
@@ -45,6 +48,11 @@ const createMcpServer = (): Server => {
 				inputSchema: { type: "object", properties: {} },
 			},
 			{
+				name: "get_picture",
+				description: "Returns the picture of the day.",
+				inputSchema: { type: "object", properties: {} },
+			},
+			{
 				name: "record_visit",
 				description: "Records a visit under the given name.",
 				inputSchema: {
@@ -59,6 +67,11 @@ const createMcpServer = (): Server => {
 	server.setRequestHandler(CallToolRequestSchema, async (request) => {
 		if (request.params.name === "get_word") {
 			return { content: [{ type: "text", text: word }] };
+		}
+		if (request.params.name === "get_picture") {
+			const rgb = requireEnv("PICTURE").split(",").map(Number);
+			const data = solidPng(rgb, 256).toString("base64");
+			return { content: [{ type: "image", data, mimeType: "image/png" }] };
 		}
 		if (request.params.name === "record_visit") {
 			appendFileSync(visitFile, `${String(request.params.arguments?.name)}\n`);
