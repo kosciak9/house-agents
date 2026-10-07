@@ -23,7 +23,7 @@ const submitInput = async (
 
 		const settled = await submission.wait(BACKGROUND_CONTEXT);
 
-		// An input /reset cut short needs no word; any other one left unanswered
+		// An input /compact cut short needs no word; any other one left unanswered
 		// tells the chat why, e.g. that no model it can use is logged in.
 		if (settled.status === "unanswered" && settled.reason !== "aborted") {
 			const why =
@@ -81,11 +81,11 @@ export const handleVoiceMessage = async (
 };
 
 // Ends the session: it becomes a line of long-term memory and a new context
-// starts. The chat hears when the reset begins and when it is done.
-export const handleResetCommand = async (
+// starts. The chat hears when the compaction begins and when it is done.
+export const handleCompactCommand = async (
 	ctx: CommandContext<Context>,
 ): Promise<void> => {
-	await ctx.reply("🔄 Resetuję rozmowę…");
+	await ctx.reply("🗜️ Kompaktuję rozmowę…");
 	await memory.endSession(root, BACKGROUND_CONTEXT);
-	await ctx.reply("✅ Zaczynamy od nowa.");
+	await ctx.reply("✅ Rozmowa skompaktowana.");
 };

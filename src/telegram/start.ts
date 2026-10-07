@@ -4,8 +4,8 @@ import { bot, chatId, environment } from "./bot.ts";
 import { createDiagnosticsCommand } from "./diagnostics.ts";
 import { announceModelSwitches } from "./fallback.ts";
 import {
+	handleCompactCommand,
 	handlePhotoMessage,
-	handleResetCommand,
 	handleTextMessage,
 	handleVoiceMessage,
 } from "./inbound.ts";
@@ -43,7 +43,7 @@ export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 	chat.command("login", handleLoginCommand);
 	chat.command("logout", handleLogoutCommand);
 	chat.command("cancel", cancelMcpLogin, handleCancelCommand);
-	chat.command("reset", handleResetCommand);
+	chat.command("compact", handleCompactCommand);
 	chat.on(
 		"message:text",
 		createLoginAnswer(mcp),

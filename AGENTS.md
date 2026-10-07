@@ -29,7 +29,7 @@ thread. Don't design for multiple users, chats or parallel threads.
   `tmp/e2e/<file>.log`. `E2E_VERBOSE=1` streams them live.
 - Keep the suite short: every bot start and every real wait costs time. Add a
   step to an existing chain (`e2e/conversation.test.ts` is one conversation
-  from start to /reset) rather than a new file, and never test the same
+  from start to /compact) rather than a new file, and never test the same
   contract twice.
 - Every checkout shares one test bot: a run waits for another to finish
   (`state/e2e.lock`). Stop `pnpm dev` first; two processes on one bot token
