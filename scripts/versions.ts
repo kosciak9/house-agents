@@ -11,7 +11,7 @@ const versions = {
 		devenv: execFileSync("node", ["--version"], { encoding: "utf8" })
 			.trim()
 			.replace(/^v/, ""),
-		Containerfile: [...containerfile.matchAll(/node:(\S+?)-slim@/g)].map(
+		Containerfile: [...containerfile.matchAll(/node:(\d+\.\d+\.\d+)/g)].map(
 			(match) => match[1],
 		),
 	},

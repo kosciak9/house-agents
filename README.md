@@ -41,9 +41,10 @@ podman run -d --name house-agents \
   ghcr.io/<owner>/house-agents:latest
 ```
 
-MCP servers started over stdio run inside the container, which has only
-Node (`npx` included); anything else is better reached by `url`. The
-Whisper endpoint and those URLs must be reachable from the container.
+MCP servers started over stdio run inside the container, which is Alpine
+(musl) with only Node (`npx` included); anything else, or anything built
+for glibc, is better reached by `url`. The Whisper endpoint and those URLs
+must be reachable from the container.
 
 ### What to keep
 
