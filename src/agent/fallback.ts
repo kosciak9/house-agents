@@ -33,7 +33,8 @@ const emit = (change: ModelSwitch): void => {
 const isModel = (spec: ModelSpec<Api>, model: Model): boolean =>
 	spec.provider === model.provider && spec.id === model.modelId;
 
-// A context overflow is the harness's to handle: it compacts and asks again.
+// A context overflow is no fault of the model: the memory compacts the
+// conversation instead.
 const failed = (message: AssistantMessage, spec: ModelSpec<Api>): boolean =>
 	message.stopReason === "error" &&
 	!isContextOverflow(message, spec.contextWindow);

@@ -5,7 +5,7 @@ A house assistant for one person, talking through Telegram.
 There is one user and one conversation, kept forever: the bot serves a single
 chat and never starts another thread. Everything happens in that thread —
 text, photos and voice notes in, replies out — and the assistant remembers
-what matters from it long after the context is reset.
+what matters from it long after the context is compacted.
 
 It is built on [pi-durable](https://www.npmjs.com/package/@earendil-works/pi-durable),
 which keeps the conversation durable across restarts. On top of it:

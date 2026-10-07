@@ -16,8 +16,8 @@ import { appendLeaf, MemoryIndex, type SessionRange } from "./store.ts";
 import { readTranscript, type Transcript } from "./transcript.ts";
 import { ENTRY_BYTES } from "./tree.ts";
 
-// A session is one context of the main conversation, from one reset to the
-// next. When it ends, the small model reads it whole and writes its leaf: the
+// A session is one context of the main conversation, from one compaction
+// to the next. When it ends, the small model reads it whole and writes its leaf: the
 // one line of memory the agent keeps of it. Nothing depends on the agent
 // remembering to take notes.
 
@@ -109,8 +109,11 @@ const closeSession = async (tx: Tx, model: ModelRef): Promise<boolean> => {
 	return true;
 };
 
-/** Ends the session and starts a new context, which reads the memory afresh. */
-export const endSession = async (
+/**
+ * Compacts the conversation: ends the session and starts a new context, which
+ * reads the memory afresh.
+ */
+export const compact = async (
 	conversation: Conversation,
 	model: ModelRef,
 	context: Context,

@@ -1,4 +1,5 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { isContextOverflow } from "@earendil-works/pi-ai";
 import {
 	type AgentEvent,
 	type Conversation,
@@ -6,55 +7,56 @@ import {
 	watchEvents,
 } from "@earendil-works/pi-durable";
 
-// Ends a session of the conversation after `idleMs` without a run, or once its
-// context reaches `maxTokens`: each ending gives the session its line of
-// memory and starts a new context. Timers live in this process; after a
-// restart the idle time counts from the start.
+// Compacts the conversation after `idleMs` without a run, once its context
+// reaches `maxTokens`, or when a run ends on a context overflow: each
+// compaction gives the session its line of memory and starts a new context.
+// Timers live in this process; after a restart the idle time counts from the
+// start.
 
-export type SessionLimits = {
+export type CompactionLimits = {
 	idleMs: number;
 	maxTokens: number;
 };
 
-// Tokens the model saw for the newest answer: the size of the context.
-const contextTokens = (event: AgentEvent): number | undefined => {
+// The newest answer, when it is the agent's own.
+const assistantMessage = (event: AgentEvent) => {
 	if (event.type !== "message_end" || event.entry.kind !== "pi.assistant") {
 		return undefined;
 	}
 	const message = event.entry.model?.[0];
-	if (message?.role !== "assistant") return undefined;
-	const { input, cacheRead, cacheWrite, output } = message.usage;
-	return input + cacheRead + cacheWrite + output;
+	return message?.role === "assistant" ? message : undefined;
 };
 
-export const keepSessions = async ({
+export const compactWhenDue = async ({
 	harness,
 	conversation,
 	limits,
-	endSession,
+	compact,
 }: {
 	harness: Harness;
 	conversation: Conversation;
-	limits: SessionLimits;
-	endSession: (conversation: Conversation) => Promise<void>;
+	limits: CompactionLimits;
+	compact: (conversation: Conversation) => Promise<void>;
 }): Promise<void> => {
 	let busy = false;
 	let tokens = 0;
+	let overflow = false;
 	let timer: NodeJS.Timeout | undefined;
 
-	const end = async () => {
+	const run = async () => {
 		if (busy) return;
 		tokens = 0;
+		overflow = false;
 		try {
-			await endSession(conversation);
+			await compact(conversation);
 		} catch (error) {
-			console.error("Ending the session failed:", error);
+			console.error("Compacting the conversation failed:", error);
 		}
 	};
 
 	const arm = () => {
 		clearTimeout(timer);
-		timer = setTimeout(end, limits.idleMs);
+		timer = setTimeout(run, limits.idleMs);
 		timer.unref();
 	};
 
@@ -65,13 +67,19 @@ export const keepSessions = async ({
 	);
 	stream.start(async (events) => {
 		for (const event of events) {
-			tokens = contextTokens(event) ?? tokens;
+			const message = assistantMessage(event);
+			if (message !== undefined) {
+				// Tokens the model saw for its answer: the size of the context.
+				const { input, cacheRead, cacheWrite, output } = message.usage;
+				tokens = input + cacheRead + cacheWrite + output;
+				overflow = isContextOverflow(message);
+			}
 			if (event.type === "run_start") {
 				busy = true;
 				clearTimeout(timer);
 			} else if (event.type === "run_end") {
 				busy = false;
-				if (tokens >= limits.maxTokens) await end();
+				if (overflow || tokens >= limits.maxTokens) await run();
 				else arm();
 			}
 		}

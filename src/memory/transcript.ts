@@ -8,7 +8,7 @@ import {
 
 // A session of the main conversation as plain text, for the small model that
 // summarizes it or answers questions about it. Entries stay in storage after
-// a reset or compaction, so a session can be read back at any time.
+// a compaction, so a session can be read back at any time.
 
 const TOOL_CALL_CHARS = 500;
 const TOOL_RESULT_CHARS = 3_000;
@@ -56,11 +56,9 @@ const renderMessage = (message: Message): string[] => {
 	}
 };
 
-// Prompts and compaction summaries are not part of what was said.
+// Prompts are not part of what was said.
 const renderEntry = (entry: EntryRecord): string[] =>
-	entry.kind === "pi.system" || entry.kind === "pi.compaction"
-		? []
-		: (entry.model ?? []).flatMap(renderMessage);
+	entry.kind === "pi.system" ? [] : (entry.model ?? []).flatMap(renderMessage);
 
 const dateOf = (timestamp: number): string =>
 	new Date(timestamp).toLocaleDateString("sv-SE");

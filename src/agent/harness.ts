@@ -29,6 +29,10 @@ export const harness = await Harness.open(
 					.installed()
 					.filter((extension) => !isSubagentRun(extension));
 			},
+			// pi's own compaction would keep a summary in the context; the memory
+			// compacts instead: the session becomes a line of memory and a new
+			// context starts (`src/memory/keeper.ts`, /compact).
+			compaction: { enabled: false },
 		},
 	},
 	BACKGROUND_CONTEXT,

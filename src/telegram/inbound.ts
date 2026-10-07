@@ -86,6 +86,6 @@ export const handleCompactCommand = async (
 	ctx: CommandContext<Context>,
 ): Promise<void> => {
 	await ctx.reply("🗜️ Kompaktuję rozmowę…");
-	await memory.endSession(root, BACKGROUND_CONTEXT);
+	await memory.compact(root, BACKGROUND_CONTEXT);
 	await ctx.reply("✅ Rozmowa skompaktowana.");
 };

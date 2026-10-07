@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-durable";
 
 import { NapTask } from "./nap.ts";
-import { endSession, SessionTask } from "./session.ts";
+import { compact, SessionTask } from "./session.ts";
 import { createMemoryAskTool, keepsMemory, memoryZoomTool } from "./tools.ts";
 import { renderWake } from "./wake.ts";
 
@@ -45,7 +45,7 @@ export const createMemory = ({
 		tasks: [SessionTask, NapTask],
 	}),
 
-	/** Ends the current session: it gets its line of memory and a new context starts. */
-	endSession: (conversation: Conversation, context: Context) =>
-		endSession(conversation, model, context),
+	/** Compacts the conversation: its session gets its line of memory and a new context starts. */
+	compact: (conversation: Conversation, context: Context) =>
+		compact(conversation, model, context),
 });

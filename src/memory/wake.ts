@@ -69,7 +69,7 @@ export const renderWake = async (
 		memory.count === 0
 			? "Your long-term memory is empty: this is your first conversation with the user."
 			: `Your long-term memory: one line per past conversation with the user, oldest first, ${memory.count} so far.`,
-		"Each conversation ended with a reset, which is why you do not see it; this one will be remembered the same way.",
+		"Each conversation ended with a compaction, which is why you do not see it; this one will be remembered the same way.",
 		"`[session] dates text` is one past conversation. `#a-b dates text` merges conversations a to b; " +
 			"memory_zoom opens it into its two halves. Zoom down to the conversation you need, then " +
 			"memory_ask answers questions about it from its full transcript.",
