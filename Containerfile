@@ -14,5 +14,6 @@ COPY package.json ./
 COPY src src
 # The deployment mounts its house-agents.config.ts here; state/ lands next to it.
 WORKDIR /data
+RUN mkdir state && chown node:node state
 USER node
 ENTRYPOINT ["node", "/app/src/main.ts"]
