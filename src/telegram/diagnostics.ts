@@ -29,7 +29,7 @@ const toolLines = (tools: string[], mcpTools: string[]): string[] =>
 	);
 
 // Every tool the agent is offered now, then what each subagent gets once it
-// runs; MCP tools as `codemode` scripts call them.
+// runs; local and MCP tools as `codemode` scripts call them.
 const toolsText = async (mcp: Mcp): Promise<string> => {
 	const agent = await root.agent(BACKGROUND_CONTEXT);
 	return [

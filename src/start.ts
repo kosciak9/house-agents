@@ -3,12 +3,25 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { harness, root } from "./agent/harness.ts";
 import { compactionLimits, memory } from "./agent/memory.ts";
 import { registry } from "./agent/registry.ts";
+import { fileTools } from "./files/store.ts";
 import { agentPolicy, servers, tokens } from "./mcp/config.ts";
 import { startMcp } from "./mcp/start.ts";
 import { compactWhenDue } from "./memory/keeper.ts";
+import { spreadsheetTools } from "./spreadsheets/tools.ts";
+import { refreshGeneralSubagents } from "./subagents/resume.ts";
 import { forwardToTelegram, startTelegram } from "./telegram/start.ts";
+import { telegramTools } from "./telegram/tools.ts";
 
 await forwardToTelegram();
+// Resumed runs need the same catalogue as new inputs, even without MCP servers.
+const mcp = await startMcp({
+	registry,
+	servers,
+	policy: agentPolicy,
+	tokens,
+	localTools: [...fileTools, ...spreadsheetTools, ...telegramTools],
+});
+await refreshGeneralSubagents({ harness, registry }, BACKGROUND_CONTEXT);
 // Resume only once forwarding is attached, so answers of runs interrupted by
 // the last shutdown still reach the chat.
 harness.resume();
@@ -18,14 +31,6 @@ await compactWhenDue({
 	conversation: root,
 	limits: compactionLimits,
 	compact: (conversation) => memory.compact(conversation, BACKGROUND_CONTEXT),
-});
-
-// Tools are in place before the first message is taken.
-const mcp = await startMcp({
-	registry,
-	servers,
-	policy: agentPolicy,
-	tokens,
 });
 
 await startTelegram({ mcp });

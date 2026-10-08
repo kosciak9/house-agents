@@ -15,11 +15,31 @@ export const downloadFile = async (fileId: string): Promise<Buffer> => {
 	if (!file.file_path) {
 		throw new Error(`Telegram returned no path for file ${fileId}`);
 	}
+	if ((file.file_size ?? 0) > MAX_DOWNLOAD_BYTES)
+		throw new Error("Telegram file exceeds the 20 MB download limit");
 
 	const response = await fetch(fileUrl(file.file_path));
 	if (!response.ok) {
 		throw new Error(`Downloading file ${fileId} failed: ${response.status}`);
 	}
 
-	return Buffer.from(await response.arrayBuffer());
+	if (!response.body) throw new Error("Telegram file download has no body");
+	const reader = response.body.getReader();
+	const chunks: Buffer[] = [];
+	let size = 0;
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			size += value.byteLength;
+			if (size > MAX_DOWNLOAD_BYTES) {
+				await reader.cancel();
+				throw new Error("Telegram file exceeds the 20 MB download limit");
+			}
+			chunks.push(Buffer.from(value));
+		}
+		return Buffer.concat(chunks, size);
+	} finally {
+		reader.releaseLock();
+	}
 };

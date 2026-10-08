@@ -19,6 +19,7 @@
 		"@earendil-works/pi-ai": "^1.0.3",
 		"@earendil-works/pi-codemode": "^1.0.3",
 		"@earendil-works/pi-durable": "^1.0.3",
+		"@ironcalc/nodejs": "0.8.3",
 		"@modelcontextprotocol/sdk": "^1.32.1",
 		"@napi-rs/canvas": "^1.0.10",
 		"croner": "^10.0.1",

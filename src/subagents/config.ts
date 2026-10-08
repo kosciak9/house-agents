@@ -24,6 +24,9 @@ const requiredString = (value: unknown, field: string): string => {
 
 const parseSubagent = (name: string, value: unknown): SubagentConfig => {
 	const field = `config.subagents.${name}`;
+	if (name === "general") {
+		throw new Error(`${field} is reserved for the built-in general subagent`);
+	}
 	if (typeof value !== "object" || value === null) {
 		throw new Error(`${field} must be an object`);
 	}

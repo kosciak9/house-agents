@@ -1,5 +1,5 @@
 import { createRegistry } from "@earendil-works/pi-durable";
-
+import { config } from "../config.ts";
 import { EndingsExtension } from "../endings/endings.ts";
 import { servers, tokens } from "../mcp/config.ts";
 import { SchedulerExtension } from "../scheduler/extension.ts";
@@ -15,8 +15,12 @@ registry.install(PromptFirstExtension);
 registry.install(memory.extension);
 registry.install(EndingsExtension);
 registry.install(SchedulerExtension);
-if (subagents.size > 0) {
-	registry.install(
-		createSubagentExtension({ registry, subagents, servers, tokens }),
-	);
-}
+registry.install(
+	createSubagentExtension({
+		registry,
+		subagents,
+		servers,
+		tokens,
+		general: config,
+	}),
+);

@@ -14,13 +14,13 @@ export type Mcp = {
 	reconnect: (server: string) => Promise<void>;
 	/** How the agent's connection to `server` stands; `undefined` if it has none. */
 	status: (server: string) => ServerStatus | undefined;
-	/** The names the agent's `codemode` scripts call its tools by. */
+	/** Local and MCP names the agent's `codemode` scripts call its tools by. */
 	tools: () => string[];
 };
 
 /**
  * Connects to every server of the agent's `policy` and offers the tools it
- * allows to the agent's `codemode` tool (extension `mcp`). A server the user
+ * allows alongside local tools in the agent's `codemode` (extension `mcp`). A server the user
  * has not logged in to, or one that cannot be reached, is left out, so the
  * agent still runs without it.
  */
@@ -29,11 +29,13 @@ export const startMcp = async ({
 	servers,
 	policy,
 	tokens,
+	localTools = [],
 }: {
 	registry: Registry;
 	servers: ReadonlyMap<string, ServerConfig>;
 	policy: Policy;
 	tokens: TokenStore;
+	localTools?: readonly CodemodeTool[];
 }): Promise<Mcp> => {
 	const statuses = new Map<string, ServerStatus>();
 	const clients = new Map<string, Client>();
@@ -42,7 +44,7 @@ export const startMcp = async ({
 	const serverTools = new Map<string, CodemodeTool[]>();
 
 	const installCodemode = () => {
-		const tools = [...serverTools.values()].flat();
+		const tools = [...localTools, ...[...serverTools.values()].flat()];
 		if (tools.length === 0) {
 			registry.uninstall({ name: "mcp" });
 			return;
@@ -78,11 +80,15 @@ export const startMcp = async ({
 		}
 	};
 
+	installCodemode();
 	await Promise.all([...policy.keys()].map(connect));
 
 	return {
 		reconnect: connect,
 		status: (server) => statuses.get(server),
-		tools: () => [...serverTools.values()].flat().map((tool) => tool.name),
+		tools: () =>
+			[...localTools, ...[...serverTools.values()].flat()].map(
+				(tool) => tool.name,
+			),
 	};
 };

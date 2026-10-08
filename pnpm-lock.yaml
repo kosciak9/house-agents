@@ -178,6 +178,9 @@ importers:
       '@earendil-works/pi-durable':
         specifier: ^1.0.3
         version: 1.0.3(@aws-sdk/credential-provider-node@3.972.84)(@modelcontextprotocol/sdk@1.32.1(zod@4.6.5))(@smithy/signature-v4@5.7.4)(bufferutil@4.1.0)(utf-8-validate@5.0.10)(ws@8.22.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(zod@4.6.5)
+      '@ironcalc/nodejs':
+        specifier: 0.8.3
+        version: 0.8.3
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.1
         version: 1.32.1(zod@4.6.5)
@@ -559,6 +562,78 @@ packages:
     engines: {node: '>=20'}
     peerDependencies:
       hono: ^4
+
+  '@ironcalc/nodejs-android-arm-eabi@0.8.3':
+    resolution: {integrity: sha512-PJde6hdwTH5v1cIHBwNTwLJsb/oVspKKPZz7rhww5nfBKp1+TZl74M2pxeYKDaR4jceor1gaPZdXGVYQ2u8RjA==}
+    engines: {node: '>= 10'}
+    cpu: [arm]
+    os: [android]
+
+  '@ironcalc/nodejs-android-arm64@0.8.3':
+    resolution: {integrity: sha512-2DSHFlq9CsSdxZHfWBLIzNHBeb/DQozd/iQLjgzRCpBhj2osZgWlXrug2etoCEsNWj4coRLVm3VyDyEXSqKQRg==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [android]
+
+  '@ironcalc/nodejs-darwin-arm64@0.8.3':
+    resolution: {integrity: sha512-GWX9UMrmr+v3ednfb/paKL2GYoIfJdF5KO+S0qnwUF027FJQAphGC8ELHuCIRdwikBZp1kAAb4QpJ8zzHF/prQ==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@ironcalc/nodejs-darwin-universal@0.8.3':
+    resolution: {integrity: sha512-NqF06O4PCS18jvjpV3RaFKVV17X40trUmnCnUukR9lRg7VZYSKvkxYa33DgiPhW1CP09zSeRifmHwH924K+mow==}
+    engines: {node: '>= 10'}
+    os: [darwin]
+
+  '@ironcalc/nodejs-darwin-x64@0.8.3':
+    resolution: {integrity: sha512-kFsCBoPneqWp8sOP9BC3ZYNmYpEED/SAFBa595nV1J59rMvqjdxnWNNG5lN5/a9q1+7sVjn6NCQYfPX9cvZ0Ew==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@ironcalc/nodejs-linux-arm-gnueabihf@0.8.3':
+    resolution: {integrity: sha512-3EzTwxDOUynB3GhTbH1m+dAsxNtLBII+8/GdxR7nEEwmR//7hAkaM9GU5yyzT8lIE2a40QawsZNnjq3LkM++xQ==}
+    engines: {node: '>= 10'}
+    cpu: [arm]
+    os: [linux]
+
+  '@ironcalc/nodejs-linux-arm64-gnu@0.8.3':
+    resolution: {integrity: sha512-uLpZrPJKtL4Agi2SfEkBnYQFfir2QP+exgVQi0LOze0pQOd+CmcgeUPAZWDAfntMxfxBJ+tF5BgQYNIE5DHYSA==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@ironcalc/nodejs-linux-riscv64-gnu@0.8.3':
+    resolution: {integrity: sha512-Ht/GflZXaKn08dddz7ry74C9ZYIM2QMuTdAmoVSEB34gLdV+QtkaBcL5ot2ZmM1sIT9SK7y6QKTrvb1z0J1VuQ==}
+    engines: {node: '>= 10'}
+    cpu: [riscv64]
+    os: [linux]
+    libc: [glibc]
+
+  '@ironcalc/nodejs-linux-x64-gnu@0.8.3':
+    resolution: {integrity: sha512-n44IrdxUGuGru4HwNuieWN7fmsPOGTjlhcGwe2p+8rE4hrccCiB7Njh92hDnatCVjGHjsLV9tkXA2RWvGne1qg==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@ironcalc/nodejs-win32-arm64-msvc@0.8.3':
+    resolution: {integrity: sha512-bWMARXOcjqlwQVDkqcJeqtTAXqm19IshTkNJif1xv38VK+uj0crzBmi0XXiP00oGx5f7XAb1Qmc8GK8TLjocAw==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@ironcalc/nodejs-win32-x64-msvc@0.8.3':
+    resolution: {integrity: sha512-cqgECHsriftU5ru/hLS5WLtNbrEr9iQWXnLf8SdrPWMdX8hX9X3a+llcuu5PPueOYUjL+xpQWtBoEXAe1T5maQ==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [win32]
+
+  '@ironcalc/nodejs@0.8.3':
+    resolution: {integrity: sha512-gCnA/GHHp9+/VLX9QpUiCpgKkG/7F/RZhAslxDssERSZBfbZIoHe/fgibMbDIBuaZ21DEbejZ0tRkENYVN27TQ==}
+    engines: {node: '>= 10'}
 
   '@modelcontextprotocol/sdk@1.32.1':
     resolution: {integrity: sha512-2DdE+SJDtzLEEWzY1ZjY7Q+VcPhcV1KisD3zI4u0XZyktsjHum1mwbMI+JaulUBi2OZk+KJAi2uPXzxichPkdw==}
@@ -1857,6 +1932,53 @@ snapshots:
   '@hono/node-server@2.1.3(hono@4.13.13)':
     dependencies:
       hono: 4.13.13
+
+  '@ironcalc/nodejs-android-arm-eabi@0.8.3':
+    optional: true
+
+  '@ironcalc/nodejs-android-arm64@0.8.3':
+    optional: true
+
+  '@ironcalc/nodejs-darwin-arm64@0.8.3':
+    optional: true
+
+  '@ironcalc/nodejs-darwin-universal@0.8.3':
+    optional: true
+
+  '@ironcalc/nodejs-darwin-x64@0.8.3':
+    optional: true
+
+  '@ironcalc/nodejs-linux-arm-gnueabihf@0.8.3':
+    optional: true
+
+  '@ironcalc/nodejs-linux-arm64-gnu@0.8.3':
+    optional: true
+
+  '@ironcalc/nodejs-linux-riscv64-gnu@0.8.3':
+    optional: true
+
+  '@ironcalc/nodejs-linux-x64-gnu@0.8.3':
+    optional: true
+
+  '@ironcalc/nodejs-win32-arm64-msvc@0.8.3':
+    optional: true
+
+  '@ironcalc/nodejs-win32-x64-msvc@0.8.3':
+    optional: true
+
+  '@ironcalc/nodejs@0.8.3':
+    optionalDependencies:
+      '@ironcalc/nodejs-android-arm-eabi': 0.8.3
+      '@ironcalc/nodejs-android-arm64': 0.8.3
+      '@ironcalc/nodejs-darwin-arm64': 0.8.3
+      '@ironcalc/nodejs-darwin-universal': 0.8.3
+      '@ironcalc/nodejs-darwin-x64': 0.8.3
+      '@ironcalc/nodejs-linux-arm-gnueabihf': 0.8.3
+      '@ironcalc/nodejs-linux-arm64-gnu': 0.8.3
+      '@ironcalc/nodejs-linux-riscv64-gnu': 0.8.3
+      '@ironcalc/nodejs-linux-x64-gnu': 0.8.3
+      '@ironcalc/nodejs-win32-arm64-msvc': 0.8.3
+      '@ironcalc/nodejs-win32-x64-msvc': 0.8.3
 
   '@modelcontextprotocol/sdk@1.32.1(zod@4.6.5)':
     dependencies:

@@ -5,6 +5,7 @@ import type { CommandContext, Context, Filter } from "grammy";
 import { root } from "../agent/harness.ts";
 import { memory } from "../agent/memory.ts";
 import { readDocument } from "../documents/read.ts";
+import { putFile } from "../files/store.ts";
 import { transcribe } from "../voice/whisper.ts";
 import { bot, chatId } from "./bot.ts";
 import { downloadFile, MAX_DOWNLOAD_BYTES } from "./files.ts";
@@ -59,8 +60,8 @@ export const handlePhotoMessage = async (
 	]);
 };
 
-// The model gets the file as it can read it (src/documents/read.ts); its
-// caption, if any, comes along as text.
+// Preserve the original bytes before making a model-facing preview. XLSX is
+// read through spreadsheet tools, not a lossy or potentially empty PDF render.
 export const handleDocumentMessage = async (
 	ctx: Filter<Context, "message:document">,
 ): Promise<void> => {
@@ -69,19 +70,34 @@ export const handleDocumentMessage = async (
 	const mimeType = document.mime_type ?? "application/octet-stream";
 	console.log("Received document:", fileName, mimeType);
 
-	const content =
-		(document.file_size ?? 0) > MAX_DOWNLOAD_BYTES
-			? [
-					{
-						type: "text" as const,
-						text: `The user sent the file "${fileName}" (${mimeType}). It is larger than the 20 MB a Telegram bot may download, so its content cannot be shown.`,
-					},
-				]
-			: await readDocument({
-					data: await downloadFile(document.file_id),
-					fileName,
-					mimeType,
-				});
+	const content: Exclude<UserInput, string> = [];
+	if ((document.file_size ?? 0) > MAX_DOWNLOAD_BYTES) {
+		content.push({
+			type: "text",
+			text: `The user sent the file "${fileName}" (${mimeType}). It is larger than the 20 MB a Telegram bot may download, so its content cannot be shown.`,
+		});
+	} else {
+		try {
+			const data = await downloadFile(document.file_id);
+			const file = putFile({ data, fileName, mimeType });
+			const spreadsheet =
+				/\.xlsx$/i.test(fileName) ||
+				mimeType ===
+					"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+			content.push({
+				type: "text",
+				text: `Original attachment stored in memory: ${JSON.stringify({ fileId: file.id, fileName: file.fileName, mimeType: file.mimeType, size: file.size })}. This fileId expires on process restart. ${spreadsheet ? "Use spreadsheet tools to open and inspect these original workbook bytes; no PDF conversion was made." : "Use file tools to access the original bytes; any preview below is separate."}`,
+			});
+			if (!spreadsheet)
+				content.push(...(await readDocument({ data, fileName, mimeType })));
+		} catch (error) {
+			console.error(`Receiving document ${fileName} failed:`, error);
+			content.push({
+				type: "text",
+				text: `The user sent the file "${fileName}" (${mimeType}), but its content could not be downloaded, retained or previewed.`,
+			});
+		}
+	}
 
 	await submitInput(message_id, [
 		...(caption ? [{ type: "text" as const, text: caption }] : []),
