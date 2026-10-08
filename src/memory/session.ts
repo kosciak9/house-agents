@@ -10,6 +10,7 @@ import {
 	UserEntry,
 } from "@earendil-works/pi-durable";
 
+import { recordModelUsage } from "../agent/usage.ts";
 import { askLine } from "./llm.ts";
 import { backoffMs, ensureNapTask } from "./nap.ts";
 import { appendLeaf, MemoryIndex, type SessionRange } from "./store.ts";
@@ -183,6 +184,11 @@ export const SessionTask = defineTask<SessionInput, SessionState, null>({
 			}
 
 			await runtime.commit(async (tx) => {
+				await recordModelUsage(
+					tx,
+					`${task.input.model.provider}/${task.input.model.modelId}`,
+					answer?.usage,
+				);
 				if (answer?.ok === false) {
 					return {
 						status: "running",

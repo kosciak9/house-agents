@@ -22,6 +22,7 @@ export const blockLines = async (
 	memory: MemoryReader,
 	block: Block,
 ): Promise<string[]> => {
+	if (block.lo >= memory.count) return [];
 	if (block.hi - block.lo === 1) {
 		return (await memory.leaves(block.lo, block.hi)).map(formatLeaf);
 	}
@@ -37,6 +38,31 @@ export const blockLines = async (
 		...(await blockLines(memory, { lo: block.lo, hi: mid })),
 		...(await blockLines(memory, { lo: mid, hi: block.hi })),
 	];
+};
+
+/** The same overview as a fresh agent context, without waiting for writers. */
+export const memoryLines = async (memory: MemoryReader): Promise<string[]> => {
+	const lines: string[] = [];
+	for (const block of cover(memory.count, WAKE_LINES)) {
+		lines.push(...(await blockLines(memory, block)));
+	}
+	return lines;
+};
+
+/** One zoom step, shared by the model's tool and the read-only diagnostics. */
+export const zoomLines = async (
+	memory: MemoryReader,
+	block: Block,
+): Promise<string[]> => {
+	const mid = (block.lo + block.hi) / 2;
+	const lines: string[] = [];
+	for (const half of [
+		{ lo: block.lo, hi: mid },
+		{ lo: mid, hi: block.hi },
+	]) {
+		if (half.lo < half.hi) lines.push(...(await blockLines(memory, half)));
+	}
+	return lines;
 };
 
 // A new context starts once the sessions before it have their leaves, so it
@@ -59,10 +85,7 @@ export const renderWake = async (
 	context: Context,
 ): Promise<string> => {
 	const memory = await settledMemory(reader, context);
-	const lines: string[] = [];
-	for (const block of cover(memory.count, WAKE_LINES)) {
-		lines.push(...(await blockLines(memory, block)));
-	}
+	const lines = await memoryLines(memory);
 
 	return [
 		"<memory>",

@@ -11,7 +11,7 @@ import { ask } from "./llm.ts";
 import { openMemory } from "./store.ts";
 import { readTranscript, type Transcript } from "./transcript.ts";
 import { formatBlock, parseBlock } from "./tree.ts";
-import { blockLines } from "./wake.ts";
+import { zoomLines } from "./wake.ts";
 
 const ASK_SYSTEM_PROMPT =
 	"You answer a personal assistant's question about one of its past conversations with its user. " +
@@ -65,15 +65,7 @@ export const memoryZoomTool = defineTool({
 			);
 		}
 
-		const mid = (block.lo + block.hi) / 2;
-		const lines: string[] = [];
-		for (const half of [
-			{ lo: block.lo, hi: mid },
-			{ lo: mid, hi: Math.min(block.hi, memory.count) },
-		]) {
-			if (half.lo < half.hi) lines.push(...(await blockLines(memory, half)));
-		}
-		return text(lines);
+		return text(await zoomLines(memory, block));
 	},
 });
 

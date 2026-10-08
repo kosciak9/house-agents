@@ -3,7 +3,10 @@ import type { CommandMiddleware, Context } from "grammy";
 import { harness, root } from "../agent/harness.ts";
 import type { Mcp } from "../mcp/start.ts";
 import { bot, chatId, environment } from "./bot.ts";
-import { createDiagnosticsCommand } from "./diagnostics.ts";
+import {
+	createDiagnosticsCommand,
+	handleDiagnosticsMemoryCallback,
+} from "./diagnostics.ts";
 import { announceModelSwitches } from "./fallback.ts";
 import {
 	handleCompactCommand,
@@ -79,13 +82,14 @@ export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 		},
 		{
 			command: "diagnostics",
-			description: "Stan agenta, np. /diagnostics tools",
+			description: "Zużycie, bieżąca sesja, pamięć i narzędzia agenta",
 			handlers: [createDiagnosticsCommand(mcp)],
 		},
 	];
 	for (const { command, handlers } of commands) {
 		chat.command(command, ...handlers);
 	}
+	chat.callbackQuery(/^diagnostics-memory:/, handleDiagnosticsMemoryCallback);
 	await bot.api.setMyCommands(
 		commands.map(({ command, description }) => ({ command, description })),
 		{ scope: { type: "chat", chat_id: chatId } },

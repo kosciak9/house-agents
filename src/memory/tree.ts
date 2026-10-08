@@ -25,7 +25,13 @@ export const parseBlock = (id: string): Block | undefined => {
 	const lo = Number(match[1]);
 	const hi = Number(match[2]) + 1;
 	const size = hi - lo;
-	if (size < 2 || (size & (size - 1)) !== 0 || lo % size !== 0) {
+	if (
+		!Number.isSafeInteger(lo) ||
+		!Number.isSafeInteger(hi) ||
+		size < 2 ||
+		2 ** Math.floor(Math.log2(size)) !== size ||
+		lo % size !== 0
+	) {
 		return undefined;
 	}
 	return { lo, hi };

@@ -81,6 +81,13 @@ const directory = mkdtempSync(path.join(tmpdir(), "e2e-conversation-"));
 let runningBot: RunningBot | undefined;
 let client: Client;
 let bot: string;
+let initialUsage = 0;
+
+const usedTokens = (text: string): number => {
+	const match = /Razem: ([\d\s]+) tokenów/.exec(text);
+	assert.ok(match, `Missing token total in: ${text}`);
+	return Number(match[1].replace(/\s/g, ""));
+};
 
 const say = (text: string) =>
 	sendAndWaitForReply(client, bot, text, {
@@ -109,6 +116,31 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 			/Zefiryn/i,
 		);
 	});
+
+	await t.test(
+		"diagnostics report tokens and estimated USD without calling the model",
+		async () => {
+			const usage = await say("/diagnostics usage");
+			for (const label of [
+				"Input:",
+				"Output:",
+				"Cache read:",
+				"Cache write:",
+				"Koszt szacunkowy (USD): $",
+			])
+				assert.ok(usage.includes(label), `Missing ${label}`);
+			initialUsage = usedTokens(usage);
+			assert.ok(initialUsage > 0);
+			assert.match(usage, /Koszt szacunkowy \(USD\): \$(?!0\.000000)\d+\.\d+/);
+			const current = await say("/diagnostics current");
+			assert.equal(
+				current.split("\n").slice(1).join("\n"),
+				usage.split("\n").slice(1).join("\n"),
+			);
+			assert.match(await say("/diagnostics memory"), /Pamięć jest pusta/);
+			assert.equal(await say("/diagnostics usage"), usage);
+		},
+	);
 
 	await t.test("answers what a voice message says", async () => {
 		const reply = await sendVoiceAndWaitForReply(client, bot, VOICE_FILE, {
@@ -164,6 +196,7 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 			await say("Jak wabi się mój kot? Odpowiedz samym imieniem."),
 			new RegExp(cat, "i"),
 		);
+		assert.ok(usedTokens(await say("/diagnostics usage")) > initialUsage);
 	});
 
 	await t.test("answers thanks with a reaction alone", async () => {
@@ -202,4 +235,22 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 		assert.match(reply, new RegExp(cat, "i"));
 		assert.match(reply.replace(/\s/g, ""), new RegExp(String(askedPrice)));
 	});
+
+	await t.test(
+		"diagnostics current resets at compaction, memory is read-only and zoomable",
+		async () => {
+			const usage = await say("/diagnostics usage");
+			const current = await say("/diagnostics current");
+			assert.ok(usedTokens(current) > 0);
+			assert.ok(usedTokens(current) < usedTokens(usage));
+			const memory = await say("/diagnostics memory");
+			assert.match(memory, /Pamięć — 1 zakończonych sesji/);
+			const leaf = /\[[0-9a-f]{8}\] [^\n]+/.exec(memory)?.[0];
+			assert.ok(leaf, `Missing saved memory in: ${memory}`);
+			assert.ok((await say("/diagnostics memory #0-1")).includes(leaf));
+			assert.match(await say("/diagnostics memory #1-2"), /Użycie:/);
+			assert.equal(await say("/diagnostics memory"), memory);
+			assert.equal(await say("/diagnostics usage"), usage);
+		},
+	);
 });

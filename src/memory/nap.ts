@@ -6,6 +6,7 @@ import {
 	type Tx,
 } from "@earendil-works/pi-durable";
 
+import { recordModelUsage } from "../agent/usage.ts";
 import { askLine } from "./llm.ts";
 import {
 	formatLeaf,
@@ -127,6 +128,11 @@ export const NapTask = defineTask<NapInput, NapState, null>({
 			}
 
 			await runtime.commit(async (tx) => {
+				await recordModelUsage(
+					tx,
+					`${task.input.model.provider}/${task.input.model.modelId}`,
+					answer.usage,
+				);
 				if (!answer.ok) {
 					return {
 						status: "running",
