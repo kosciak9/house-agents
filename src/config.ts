@@ -9,34 +9,27 @@ import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 // reads the ones the config needs from `process.env` itself.
 
 /**
- * How to reach an MCP server; who may use which of its tools is up to an
- * `McpPolicy`. A server that needs OAuth offers nothing until the user logs
- * in to it from the chat (`/mcp_login`).
+ * Where to reach a remote MCP server (Streamable HTTP); who may use which of
+ * its tools is up to an `McpPolicy`. A server that needs OAuth offers nothing
+ * until the user logs in to it from the chat (`/mcp_login`).
  */
-export type McpServer =
-	| {
-			command: string;
-			args?: string[];
-			env?: Record<string, string>;
-			cwd?: string;
-	  }
-	| {
-			url: string;
-			/** Sent with every request, e.g. `Authorization: Bearer <key>`. */
-			headers?: Record<string, string>;
-			/**
-			 * `true` registers the client dynamically; an object may name a
-			 * pre-registered client, its redirect URL and the scope to ask for.
-			 */
-			oauth?:
-				| boolean
-				| {
-						clientId?: string;
-						clientSecret?: string;
-						scope?: string;
-						redirectUrl?: string;
-				  };
-	  };
+export type McpServer = {
+	url: string;
+	/** Sent with every request, e.g. `Authorization: Bearer <key>`. */
+	headers?: Record<string, string>;
+	/**
+	 * `true` registers the client dynamically; an object may name a
+	 * pre-registered client, its redirect URL and the scope to ask for.
+	 */
+	oauth?:
+		| boolean
+		| {
+				clientId?: string;
+				clientSecret?: string;
+				scope?: string;
+				redirectUrl?: string;
+		  };
+};
 
 /**
  * The tools an agent may call, by server name from `mcpServers`; every other
@@ -62,12 +55,14 @@ export type Subagent = {
 	prompt: string;
 	/** The agent's model by default. */
 	model?: Model;
-	/**
-	 * Every subagent connects to its servers anew and closes them when it is
-	 * done, so each one started over stdio runs only for that subagent, e.g. a
-	 * browser of its own.
-	 */
+	/** Every subagent connects to its servers anew and closes them when done. */
 	mcp?: McpPolicy;
+	/**
+	 * Gives it Lightpanda, the headless browser in the image, to search the web
+	 * and read pages: a browser of its own, started for it and closed once it
+	 * answers.
+	 */
+	lightpanda?: boolean;
 };
 
 export type Config = {

@@ -16,8 +16,9 @@ which keeps the conversation durable across restarts. On top of it:
 - voice notes transcribed with Whisper;
 - files read before the agent sees them: PDF pages as images, and other
   documents converted to PDF by Gotenberg first;
-- tools from MCP servers, each agent allowed only the ones it is given;
-- subagents that take tasks in the background and report back to the thread.
+- tools from remote MCP servers, each agent allowed only the ones it is given;
+- subagents that take tasks in the background and report back to the thread,
+  each with a Lightpanda browser of its own if it is given one.
 
 Telegram is an adapter at the edge; the core does not depend on it.
 
@@ -43,10 +44,8 @@ podman run -d --name house-agents \
   ghcr.io/<owner>/house-agents:latest
 ```
 
-MCP servers started over stdio run inside the container, which is Alpine
-(musl) with only Node (`npx` included); anything else, or anything built
-for glibc, is better reached by `url`. The Whisper endpoint and those URLs
-must be reachable from the container, as must Gotenberg's, if set.
+MCP servers are reached by `url`. They, the Whisper endpoint and Gotenberg,
+if set, must be reachable from the container.
 
 ### What to keep
 

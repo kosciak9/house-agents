@@ -1,6 +1,6 @@
-// Contract: the agent uses the tools of the MCP servers its deployment lists
-// in its config, over stdio, over HTTP with an API key header, and over HTTP
-// with OAuth, and only the tools its policy allows. /mcp lists the servers,
+// Contract: the agent uses the tools of the remote MCP servers its deployment
+// lists in its config, with an API key header or with OAuth, and only the
+// tools its policy allows. /mcp lists the servers,
 // their state and who uses them; /mcp <server> lists its tools, the allowed
 // ones marked. An OAuth server offers nothing until the user logs in:
 // /mcp_login sends the link, the user approves and sends the address the
@@ -8,21 +8,14 @@
 // without asking again; the link and the address are deleted from the chat.
 // /diagnostics tools lists the tools of the agent and of each subagent. Nothing of the bot is reachable from outside.
 // The agent sees the images a tool returns.
-// Subagents run in the background, several at once, each on a stdio server
-// of its policy started for it alone and stopped once it has answered, and
-// the agent gets their answers.
-// Runs its own bot processes on one session, next to two test MCP servers
-// (`e2e/mcp/server.ts`) on HTTP; the bot starts the stdio one itself. The
-// OAuth server is its own authorization server and approves at once, so
-// fetching the link stands in for the user's consent.
+// Subagents run in the background, several at once, each with the tools of
+// its own policy, and the agent gets their answers. (Their Lightpanda is left
+// to the deployment's use.)
+// Runs its own bot processes on one session, next to three test MCP servers
+// (`e2e/mcp/server.ts`). The OAuth server is its own authorization server and
+// approves at once, so fetching the link stands in for the user's consent.
 import assert from "node:assert/strict";
-import {
-	existsSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -31,11 +24,7 @@ import type { Client } from "tdl";
 
 import { DEFAULT_PROMPT, type RunningBot, startBot } from "./bot.ts";
 import { COLORS } from "./image.ts";
-import {
-	type RunningMcpServer,
-	STDIO_SERVER,
-	startHttpMcpServer,
-} from "./mcp/http.ts";
+import { type RunningMcpServer, startHttpMcpServer } from "./mcp/http.ts";
 import {
 	botUsername,
 	connectTestUser,
@@ -47,7 +36,6 @@ const MINUTE = 60_000;
 
 const runId = Date.now().toString(36).toUpperCase();
 const httpWord = `ZDALNE-${runId}`;
-const stdioWord = `LOKALNE-${runId}`;
 const oauthWord = `CHRONIONE-${runId}`;
 const scoutWord = `ZWIAD-${runId}`;
 const apiKey = `key-${runId}`;
@@ -56,10 +44,11 @@ const color = COLORS[Math.floor(Math.random() * COLORS.length)] ?? COLORS[0];
 
 const directory = mkdtempSync(path.join(tmpdir(), "e2e-mcp-"));
 const visitFile = path.join(directory, "visits.txt");
-const lifeFile = path.join(directory, "scout-servers.txt");
+const callFile = path.join(directory, "scout-calls.txt");
 
 let httpServer: RunningMcpServer;
 let oauthServer: RunningMcpServer;
+let wordsServer: RunningMcpServer;
 let runningBot: RunningBot | undefined;
 let client: Client;
 let bot: string;
@@ -72,19 +61,14 @@ const startMcpBot = () =>
 				url: httpServer.url,
 				headers: { Authorization: `Bearer ${apiKey}` },
 			},
-			local: {
-				...STDIO_SERVER,
-				env: { WORD: stdioWord, VISIT_FILE: visitFile },
-			},
 			secure: { url: oauthServer.url, oauth: true },
 			words: {
-				...STDIO_SERVER,
-				env: { WORD: scoutWord, VISIT_FILE: visitFile, LIFE_FILE: lifeFile },
+				url: wordsServer.url,
+				headers: { Authorization: `Bearer ${apiKey}` },
 			},
 		},
 		mcp: {
 			remote: ["get_word", "get_picture"],
-			local: ["get_word"],
 			secure: ["get_word"],
 		},
 		subagents: {
@@ -116,6 +100,12 @@ before(async () => {
 		VISIT_FILE: visitFile,
 		OAUTH: "1",
 	});
+	wordsServer = await startHttpMcpServer({
+		WORD: scoutWord,
+		VISIT_FILE: visitFile,
+		CALL_FILE: callFile,
+		API_KEY: apiKey,
+	});
 	client = await connectTestUser();
 	bot = botUsername();
 });
@@ -125,10 +115,11 @@ after(async () => {
 	await runningBot?.stop();
 	httpServer?.stop();
 	oauthServer?.stop();
+	wordsServer?.stop();
 	rmSync(directory, { recursive: true, force: true });
 });
 
-test("mcp: allowed tools work over stdio, HTTP and OAuth, others are hidden", {
+test("mcp: allowed tools work with an API key and OAuth, others are hidden", {
 	timeout: 9 * MINUTE,
 }, async (t) => {
 	let link = "";
@@ -140,10 +131,8 @@ test("mcp: allowed tools work over stdio, HTTP and OAuth, others are hidden", {
 			runningBot = await startMcpBot();
 			const list = await sendAndWaitForReply(client, bot, "/mcp");
 			assert.match(list, /^secure: 🔒 wymaga logowania; dla: agent$/m);
-			assert.match(list, /^local: ✓ połączony; dla: agent$/m);
+			assert.match(list, /^remote: ✓ połączony; dla: agent$/m);
 			assert.match(list, /^words: .*; dla: zwiadowca$/m);
-			// A subagent's server runs only while a subagent does.
-			assert.equal(existsSync(lifeFile), false);
 		},
 	);
 
@@ -217,13 +206,7 @@ test("mcp: allowed tools work over stdio, HTTP and OAuth, others are hidden", {
 		assert.match(reply, color.answer);
 	});
 
-	await t.test("calls a tool over stdio", async () => {
-		assert.match(await askForWord("local"), new RegExp(stdioWord));
-	});
-
-	await t.test("subagents run at once, on servers of their own", async () => {
-		// Only what the subagents start; listing its tools started it before.
-		writeFileSync(lifeFile, "");
+	await t.test("subagents run at once, with tools of their own", async () => {
 		await sendAndWaitForReply(
 			client,
 			bot,
@@ -235,11 +218,8 @@ test("mcp: allowed tools work over stdio, HTTP and OAuth, others are hidden", {
 				timeoutMs: 3 * MINUTE,
 			},
 		);
-		const life = readFileSync(lifeFile, "utf8");
-		const started = [...life.matchAll(/^start (\d+)$/gm)].map((m) => m[1]);
-		const exited = [...life.matchAll(/^exit (\d+)$/gm)].map((m) => m[1]);
-		assert.equal(new Set(started).size, 2);
-		assert.deepEqual(new Set(exited), new Set(started));
+		// The agent itself may not use `words`: both calls are the subagents'.
+		assert.equal(readFileSync(callFile, "utf8"), "get_word\nget_word\n");
 	});
 
 	await t.test("cannot call a tool the server does not allow", async () => {

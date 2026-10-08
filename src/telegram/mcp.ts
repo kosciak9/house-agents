@@ -41,9 +41,7 @@ const usersOf = (server: string, tool?: string): string[] =>
 		.map(([name]) => name);
 
 const needsLogin = (server: string, config: ServerConfig): boolean =>
-	config.type === "http" &&
-	config.oauth !== undefined &&
-	!hasTokens(tokens, server, config.url);
+	config.oauth !== undefined && !hasTokens(tokens, server, config.url);
 
 const statusText = (mcp: Mcp, server: string, config: ServerConfig) => {
 	if (needsLogin(server, config)) return "🔒 wymaga logowania";
@@ -125,7 +123,7 @@ export const createLoginCommand =
 	async (ctx: CommandContext<Context>): Promise<void> => {
 		const server = ctx.match.trim();
 		const config = servers.get(server);
-		if (config?.type !== "http" || !config.oauth) {
+		if (!config?.oauth) {
 			await ctx.reply(
 				`Podaj serwer logujący się przez OAuth: /${LOGIN_COMMAND} <serwer>. Zobacz /mcp.`,
 			);

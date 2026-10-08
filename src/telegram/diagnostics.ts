@@ -2,6 +2,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { CommandContext, Context } from "grammy";
 
 import { root } from "../agent/harness.ts";
+import { LIGHTPANDA_TOOLS } from "../lightpanda/connect.ts";
 import { toolName } from "../mcp/client.ts";
 import type { Mcp } from "../mcp/start.ts";
 import { subagents } from "../subagents/config.ts";
@@ -27,10 +28,13 @@ const toolsText = async (mcp: Mcp): Promise<string> => {
 			agent.tools.map((tool) => tool.name),
 			mcp.tools(),
 		),
-		...[...subagents].flatMap(([name, { policy }]) => {
-			const mcpTools = [...policy].flatMap(([server, tools]) =>
-				tools.map((tool) => toolName(server, tool)),
-			);
+		...[...subagents].flatMap(([name, { policy, lightpanda }]) => {
+			const mcpTools = [
+				...[...policy].flatMap(([server, tools]) =>
+					tools.map((tool) => toolName(server, tool)),
+				),
+				...(lightpanda ? LIGHTPANDA_TOOLS : []),
+			];
 			return [
 				"",
 				`${name} (gdy pracuje):`,

@@ -11,6 +11,8 @@ export type SubagentConfig = {
 	model: Model;
 	/** The MCP tools it may use. */
 	policy: Policy;
+	/** Whether it gets a Lightpanda browser of its own. */
+	lightpanda: boolean;
 };
 
 const requiredString = (value: unknown, field: string): string => {
@@ -34,11 +36,22 @@ const parseSubagent = (name: string, value: unknown): SubagentConfig => {
 		);
 	}
 
+	const lightpanda = subagent.lightpanda ?? false;
+	if (typeof lightpanda !== "boolean") {
+		throw new Error(`${field}.lightpanda must be true or false`);
+	}
+	const policy = parsePolicy(subagent.mcp, `${field}.mcp`);
+	// Its tools are named like those of a server called so.
+	if (lightpanda && policy.has("lightpanda")) {
+		throw new Error(`${field}.mcp names a "lightpanda" server next to its own`);
+	}
+
 	return {
 		description: requiredString(subagent.description, `${field}.description`),
 		prompt: requiredString(subagent.prompt, `${field}.prompt`),
 		model,
-		policy: parsePolicy(subagent.mcp, `${field}.mcp`),
+		policy,
+		lightpanda,
 	};
 };
 

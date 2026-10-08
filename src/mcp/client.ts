@@ -4,14 +4,13 @@ import {
 	UnauthorizedError,
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type {
 	CallToolResult,
 	Tool as McpTool,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import type { HttpServer, Policy, ServerConfig } from "./config.ts";
+import type { Policy, ServerConfig } from "./config.ts";
 import { createOAuthProvider, hasTokens, type TokenStore } from "./oauth.ts";
 
 const CALL_TIMEOUT_MS = 5 * 60_000;
@@ -62,7 +61,7 @@ export const createClient = (): Client =>
 	new Client({ name: "house-agents", version: "1.0.0" });
 
 export const httpTransport = (
-	config: HttpServer,
+	config: ServerConfig,
 	authProvider?: OAuthClientProvider,
 ) =>
 	new StreamableHTTPClientTransport(config.url, {
@@ -85,33 +84,20 @@ export const connectServer = async (
 	config: ServerConfig,
 	tokens: TokenStore,
 ): Promise<Client | undefined> => {
-	if (
-		config.type === "http" &&
-		config.oauth &&
-		!hasTokens(tokens, server, config.url)
-	) {
+	if (config.oauth && !hasTokens(tokens, server, config.url)) {
 		return undefined;
 	}
 
-	const transport =
-		config.type === "stdio"
-			? new StdioClientTransport({
-					command: config.command,
-					args: config.args,
-					env: config.env,
-					cwd: config.cwd,
-					stderr: "inherit",
-				})
-			: httpTransport(
-					config,
-					config.oauth &&
-						createOAuthProvider({
-							server,
-							url: config.url,
-							client: config.oauth,
-							store: tokens,
-						}),
-				);
+	const transport = httpTransport(
+		config,
+		config.oauth &&
+			createOAuthProvider({
+				server,
+				url: config.url,
+				client: config.oauth,
+				store: tokens,
+			}),
+	);
 
 	const client = createClient();
 	try {
@@ -191,9 +177,8 @@ export type Connection = {
 
 /**
  * Connects to every server of `policy` at once, for as long as the caller
- * needs them: `close` ends every connection, and so every stdio server's
- * process. A server the user has not logged in to is left out; one that
- * cannot be reached fails it all.
+ * needs them: `close` ends every connection. A server the user has not
+ * logged in to is left out; one that cannot be reached fails it all.
  */
 export const connectServers = async (
 	policy: Policy,

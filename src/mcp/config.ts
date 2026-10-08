@@ -2,18 +2,10 @@ import { config, stateFile } from "../config.ts";
 import { openTokenStore } from "./oauth.ts";
 
 // The MCP servers come from the deployment's `mcpServers`:
-// `{ "<name>": <server>, ... }`, and what each agent may use of them from its
-// policy: `{ "<server>": ["<tool>", ...], ... }`. Every other server and tool
-// stays hidden from that agent. The config is checked here again, since
-// nothing type-checks it before it runs.
-
-export type StdioServer = {
-	type: "stdio";
-	command: string;
-	args: string[];
-	env: Record<string, string> | undefined;
-	cwd: string | undefined;
-};
+// `{ "<name>": <server>, ... }`, all remote, and what each agent may use of
+// them from its policy: `{ "<server>": ["<tool>", ...], ... }`. Every other
+// server and tool stays hidden from that agent. The config is checked here
+// again, since nothing type-checks it before it runs.
 
 export type OAuthClient = {
 	/** Without one, the client registers itself with the server. */
@@ -24,16 +16,14 @@ export type OAuthClient = {
 	redirectUrl: URL;
 };
 
-export type HttpServer = {
-	type: "http";
+export type ServerConfig = {
+	/** Its Streamable HTTP endpoint. */
 	url: URL;
 	/** Sent with every request, e.g. `Authorization: Bearer <key>`. */
 	headers: Record<string, string>;
 	/** Set when the server authorizes the user through OAuth. */
 	oauth: OAuthClient | undefined;
 };
-
-export type ServerConfig = StdioServer | HttpServer;
 
 /** The tools an agent may call, by server. */
 export type Policy = ReadonlyMap<string, readonly string[]>;
@@ -98,35 +88,18 @@ const parseOAuth = (value: unknown, field: string): OAuthClient | undefined => {
 const parseServer = (field: string, value: unknown): ServerConfig => {
 	if (!isRecord(value)) throw new Error(`${field} must be an object`);
 
-	if (typeof value.url === "string") {
-		return {
-			type: "http",
-			url: new URL(value.url),
-			headers:
-				value.headers === undefined
-					? {}
-					: stringRecord(value.headers, `${field}.headers`),
-			oauth: parseOAuth(value.oauth, `${field}.oauth`),
-		};
+	if (typeof value.url !== "string" || !URL.canParse(value.url)) {
+		throw new Error(`${field}.url must be the server's URL`);
 	}
 
-	if (typeof value.command === "string") {
-		return {
-			type: "stdio",
-			command: value.command,
-			args:
-				value.args === undefined
-					? []
-					: stringArray(value.args, `${field}.args`),
-			env:
-				value.env === undefined
-					? undefined
-					: stringRecord(value.env, `${field}.env`),
-			cwd: optionalString(value.cwd, `${field}.cwd`),
-		};
-	}
-
-	throw new Error(`${field} needs a "url" or a "command"`);
+	return {
+		url: new URL(value.url),
+		headers:
+			value.headers === undefined
+				? {}
+				: stringRecord(value.headers, `${field}.headers`),
+		oauth: parseOAuth(value.oauth, `${field}.oauth`),
+	};
 };
 
 const parseServers = (value: unknown): Map<string, ServerConfig> => {

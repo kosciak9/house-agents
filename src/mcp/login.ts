@@ -24,7 +24,7 @@ export const startLogin = async (
 	config: ServerConfig,
 	tokens: TokenStore,
 ): Promise<McpLogin | undefined> => {
-	if (config.type !== "http" || !config.oauth) {
+	if (!config.oauth) {
 		throw new Error(`MCP server "${server}" does not log in through OAuth`);
 	}
 

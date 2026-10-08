@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-durable";
 
 import { PromptFirstExtension } from "../agent/prompt-first.ts";
+import { connectLightpanda } from "../lightpanda/connect.ts";
 import { type Connection, connectServers } from "../mcp/client.ts";
 import { createCodemodeTool } from "../mcp/codemode.ts";
 import type { ServerConfig } from "../mcp/config.ts";
@@ -24,10 +25,11 @@ import type { SubagentConfig } from "./config.ts";
 // input. A subagent knows only its own prompt and task: no memory, schedules
 // or subagents of its own.
 //
-// It gets the MCP tools its policy allows on connections of its own: opened
-// when it starts and closed once it has answered, so each subagent gets, for
-// example, a browser of its own. They come in an extension of that one
-// conversation, which the agent's default selection leaves out.
+// It gets the MCP tools its policy allows, and Lightpanda if it has it, on
+// connections of its own: opened when it starts and closed once it has
+// answered, so each subagent gets a browser of its own. They come in an
+// extension of that one conversation, which the agent's default selection
+// leaves out.
 
 const RUN_EXTENSION = "subagent-run:";
 
@@ -131,16 +133,19 @@ export const createSubagentExtension = ({
 					conversation: ConversationId,
 					prompt: string,
 				): Promise<string> => {
-					let connection: Connection | undefined;
+					const connections: Connection[] = [];
 					const run = { name: `${RUN_EXTENSION}${conversation}` };
 					try {
-						connection = await connectServers(subagent.policy, servers, tokens);
+						connections.push(
+							await connectServers(subagent.policy, servers, tokens),
+						);
+						if (subagent.lightpanda) {
+							connections.push(await connectLightpanda());
+						}
+						const tools = connections.flatMap(({ tools }) => tools);
 						const extension = defineExtension({
 							...run,
-							tools:
-								connection.tools.length > 0
-									? [createCodemodeTool(connection.tools)]
-									: [],
+							tools: tools.length > 0 ? [createCodemodeTool(tools)] : [],
 						});
 						registry.install(extension);
 						await runtime.commit(async (tx) => {
@@ -173,7 +178,7 @@ export const createSubagentExtension = ({
 						return `(failed: ${errorMessage(error)})`;
 					} finally {
 						registry.uninstall(run);
-						await connection?.close();
+						await Promise.allSettled(connections.map(({ close }) => close()));
 					}
 				};
 

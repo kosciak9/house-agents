@@ -1,23 +1,17 @@
 import { spawn } from "node:child_process";
 
-/** How the bot starts the test MCP server (`server.ts`) itself, over stdio. */
-export const STDIO_SERVER = {
-	command: process.execPath,
-	args: ["--import", "tsx", "e2e/mcp/server.ts", "stdio"],
-};
-
 export type RunningMcpServer = {
 	url: string;
 	stop: () => void;
 };
 
-/** Runs the test MCP server over HTTP in its own process; see `server.ts`. */
+/** Runs the test MCP server in its own process; see `server.ts`. */
 export const startHttpMcpServer = (
 	env: Record<string, string>,
 ): Promise<RunningMcpServer> => {
 	const child = spawn(
 		process.execPath,
-		["--import", "tsx", "e2e/mcp/server.ts", "http"],
+		["--import", "tsx", "e2e/mcp/server.ts"],
 		{ env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "inherit"] },
 	);
 
