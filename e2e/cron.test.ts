@@ -1,6 +1,7 @@
 // Contract: the agent can create a recurring cron schedule that wakes it up,
 // list it, and delete it so it stops firing; a recurring schedule would fire
-// again within the minute after deletion.
+// again within the minute after deletion. A wake-up that has nothing to tell
+// the user fires without a message in the chat.
 // Runs its own bot process on an empty session, so no schedule outlives the
 // test. Takes about 2 minutes: cron fires on full minutes.
 import assert from "node:assert/strict";
@@ -28,6 +29,9 @@ const label = `e2e-${token.toLowerCase()}`;
 const isTick = (text: string) =>
 	new RegExp(`^[\\s"'\`*.!]*${token}[\\s"'\`*.!]*$`).test(text);
 const isNotTick = (text: string) => !isTick(text);
+// Only the silent wake-up's prompt carries it: the agent knows it once that
+// wake-up has fired.
+const code = `SILENT-${token}`;
 
 let runningBot: RunningBot;
 let client: Client;
@@ -44,8 +48,8 @@ after(async () => {
 	await runningBot?.stop();
 });
 
-test("cron: create → fires → listed → deleted → stops", {
-	timeout: 6 * MINUTE,
+test("cron: create → fires → listed → deleted → stops; silent wake-up", {
+	timeout: 7 * MINUTE,
 }, async (t) => {
 	await t.test("creates a recurring cron", async () => {
 		await sendAndWaitForReply(
@@ -75,20 +79,34 @@ test("cron: create → fires → listed → deleted → stops", {
 		assert.match(list, new RegExp(label, "i"));
 	});
 
-	await t.test("deletes the schedule", async () => {
-		await sendAndWaitForReply(client, bot, `Usuń crona "${label}".`, {
-			matches: isNotTick,
-			timeoutMs: 2 * MINUTE,
+	await t.test("deletes the schedule, sets a silent wake-up", async () => {
+		await sendAndWaitForReply(
+			client,
+			bot,
+			`Usuń crona "${label}". Ustaw też pobudkę za 30 sekund z promptem: ` +
+				`"Kontrola w tle, kod ${code}. Wszystko w porządku, nie ma nic ` +
+				'do przekazania użytkownikowi." Potwierdź jednym zdaniem.',
+			{ matches: isNotTick, timeoutMs: 2 * MINUTE },
+		);
+	});
+
+	await t.test("stays silent: no tick, no wake-up message", async () => {
+		// A tick already queued before the deletion may still land right after
+		// it; only messages after that grace period break the contract.
+		await new Promise((resolve) => setTimeout(resolve, 10_000));
+		await expectNoBotMessage(client, bot, {
+			matches: () => true,
+			durationMs: 75_000,
 		});
 	});
 
-	await t.test("does not fire after deletion", async () => {
-		// A tick already queued before the deletion may still land right after
-		// it; only ticks after that grace period break the contract.
-		await new Promise((resolve) => setTimeout(resolve, 10_000));
-		await expectNoBotMessage(client, bot, {
-			matches: isTick,
-			durationMs: 75_000,
-		});
+	await t.test("the silent wake-up did fire", async () => {
+		const reply = await sendAndWaitForReply(
+			client,
+			bot,
+			"Jaki kod był w ostatniej pobudce? Odpowiedz samym kodem.",
+			{ matches: isNotTick, timeoutMs: 2 * MINUTE },
+		);
+		assert.match(reply, new RegExp(code, "i"));
 	});
 });

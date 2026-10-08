@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-durable";
 
 import { nextCronRun, type Schedule, Schedules } from "./schedules.ts";
+import { scheduledInput } from "./silent.ts";
 
 export type WakeupInput = {
 	fireAt: number;
@@ -101,7 +102,12 @@ const submitPrompt = async <I, S extends { phase: string }, R>(
 
 	// The request id keeps a fire retried after a crash from submitting twice.
 	await conversation.submit(
-		{ type: "input", content: prompt, whenBusy: "followUp", requestId },
+		{
+			type: "input",
+			content: scheduledInput(prompt),
+			whenBusy: "followUp",
+			requestId,
+		},
 		context,
 	);
 };

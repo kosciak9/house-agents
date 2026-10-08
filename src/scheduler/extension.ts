@@ -1,5 +1,6 @@
-import { defineExtension } from "@earendil-works/pi-durable";
+import { defineExtension, section } from "@earendil-works/pi-durable";
 
+import { SCHEDULED_INSTRUCTIONS } from "./silent.ts";
 import { CronTask, WakeupTask } from "./tasks.ts";
 import {
 	cronCreateTool,
@@ -10,6 +11,7 @@ import {
 
 export const SchedulerExtension = defineExtension({
 	name: "scheduler",
+	sections: [section("scheduler", () => SCHEDULED_INSTRUCTIONS)],
 	tasks: [WakeupTask, CronTask],
 	tools: [scheduleWakeupTool, cronCreateTool, cronListTool, cronDeleteTool],
 });

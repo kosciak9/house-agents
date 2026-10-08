@@ -7,6 +7,7 @@ import {
 	watchEvents,
 } from "@earendil-works/pi-durable";
 
+import { isSilentReply } from "../scheduler/silent.ts";
 import { bot, chatId } from "./bot.ts";
 
 const assistantText = (message: AssistantMessage): string =>
@@ -39,7 +40,7 @@ export const forwardAssistantMessages = async (
 
 	stream.start(async (events) => {
 		for (const markdown of events.map(finalResponseText)) {
-			if (markdown === undefined) continue;
+			if (markdown === undefined || isSilentReply(markdown)) continue;
 
 			await bot.api.sendRichMessage(chatId, { markdown });
 		}
