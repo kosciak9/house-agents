@@ -8,8 +8,13 @@ import { readDocument } from "../documents/read.ts";
 import { transcribe } from "../voice/whisper.ts";
 import { bot, chatId } from "./bot.ts";
 import { downloadFile, MAX_DOWNLOAD_BYTES } from "./files.ts";
+import { setReplyTarget } from "./reply-target.ts";
 
-const submitInput = async (content: UserInput): Promise<void> => {
+const submitInput = async (
+	messageId: number,
+	content: UserInput,
+): Promise<void> => {
+	setReplyTarget(messageId);
 	const submission = await root.submit(
 		{ type: "input", content },
 		BACKGROUND_CONTEXT,
@@ -31,14 +36,14 @@ export const handleTextMessage = async (
 ): Promise<void> => {
 	console.log("Received message:", ctx.message.text);
 
-	await submitInput(ctx.message.text);
+	await submitInput(ctx.message.message_id, ctx.message.text);
 };
 
 // The model sees the photo itself; its caption, if any, comes along as text.
 export const handlePhotoMessage = async (
 	ctx: Filter<Context, "message:photo">,
 ): Promise<void> => {
-	const { caption, photo } = ctx.message;
+	const { caption, photo, message_id } = ctx.message;
 	console.log("Received photo:", caption ?? "");
 
 	// Telegram lists the sizes of a photo from smallest to largest.
@@ -48,7 +53,7 @@ export const handlePhotoMessage = async (
 	// Telegram re-encodes every photo as JPEG.
 	const image = await downloadFile(largest.file_id);
 
-	await submitInput([
+	await submitInput(message_id, [
 		...(caption ? [{ type: "text" as const, text: caption }] : []),
 		{ type: "image", data: image.toString("base64"), mimeType: "image/jpeg" },
 	]);
@@ -59,7 +64,7 @@ export const handlePhotoMessage = async (
 export const handleDocumentMessage = async (
 	ctx: Filter<Context, "message:document">,
 ): Promise<void> => {
-	const { caption, document } = ctx.message;
+	const { caption, document, message_id } = ctx.message;
 	const fileName = document.file_name ?? "file";
 	const mimeType = document.mime_type ?? "application/octet-stream";
 	console.log("Received document:", fileName, mimeType);
@@ -78,7 +83,7 @@ export const handleDocumentMessage = async (
 					mimeType,
 				});
 
-	await submitInput([
+	await submitInput(message_id, [
 		...(caption ? [{ type: "text" as const, text: caption }] : []),
 		...content,
 	]);
@@ -88,7 +93,7 @@ export const handleDocumentMessage = async (
 export const handleVoiceMessage = async (
 	ctx: Filter<Context, "message:voice">,
 ): Promise<void> => {
-	const { voice } = ctx.message;
+	const { voice, message_id } = ctx.message;
 
 	const text = await transcribe({
 		data: await downloadFile(voice.file_id),
@@ -98,7 +103,7 @@ export const handleVoiceMessage = async (
 	console.log("Received voice:", text);
 	if (!text) return;
 
-	await submitInput(text);
+	await submitInput(message_id, text);
 };
 
 // Ends the session: it becomes a line of long-term memory and a new context

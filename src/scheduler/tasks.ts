@@ -7,9 +7,8 @@ import {
 	type TaskRuntime,
 	type Tx,
 } from "@earendil-works/pi-durable";
-
+import { scheduledInput } from "./scheduled.ts";
 import { nextCronRun, type Schedule, Schedules } from "./schedules.ts";
-import { scheduledInput } from "./silent.ts";
 
 export type WakeupInput = {
 	fireAt: number;

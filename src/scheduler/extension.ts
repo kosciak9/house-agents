@@ -1,6 +1,6 @@
 import { defineExtension, section } from "@earendil-works/pi-durable";
 
-import { SCHEDULED_INSTRUCTIONS } from "./silent.ts";
+import { SCHEDULED_INSTRUCTIONS } from "./scheduled.ts";
 import { CronTask, WakeupTask } from "./tasks.ts";
 import {
 	cronCreateTool,

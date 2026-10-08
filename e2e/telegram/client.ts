@@ -223,6 +223,54 @@ export const watchBotActivity = async (
 	};
 };
 
+/**
+ * Sends `text` to the bot and resolves with the emoji the bot reacts to it
+ * with.
+ */
+export const sendAndWaitForReaction = async (
+	client: tdl.Client,
+	bot: string,
+	text: string,
+	{ timeoutMs = 60_000 } = {},
+): Promise<string> => {
+	const chatId = await botChatId(client, bot);
+	// The message is sent with a temporary id; its final one comes in an update,
+	// which may come before sendMessage returns.
+	const finalIds = new Map<number, number>();
+	const onUpdate = (update: Update) => {
+		if (update._ !== "updateMessageSendSucceeded") return;
+		finalIds.set(update.old_message_id, update.message.id);
+	};
+	client.on("update", onUpdate);
+	const pending = await client.invoke({
+		_: "sendMessage",
+		chat_id: chatId,
+		input_message_content: {
+			_: "inputMessageText",
+			text: { _: "formattedText", text },
+		},
+	});
+
+	try {
+		const deadline = Date.now() + timeoutMs;
+		while (Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 500));
+			const messageId = finalIds.get(pending.id);
+			if (messageId === undefined) continue;
+			const message = await client.invoke({
+				_: "getMessage",
+				chat_id: chatId,
+				message_id: messageId,
+			});
+			const [reaction] = message.interaction_info?.reactions?.reactions ?? [];
+			if (reaction?.type._ === "reactionTypeEmoji") return reaction.type.emoji;
+		}
+		throw new Error(`No reaction within ${timeoutMs} ms`);
+	} finally {
+		client.off("update", onUpdate);
+	}
+};
+
 /** The commands the chat's menu offers for the bot. */
 export const botCommands = async (
 	client: tdl.Client,

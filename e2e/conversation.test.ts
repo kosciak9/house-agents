@@ -1,6 +1,7 @@
 // Contract: one conversation, as the user lives it. The agent is who its
 // prompt says; it hears voice messages (photos: `e2e/photo.test.ts`). While
-// it works the chat shows "typing…", and only finished answers arrive. A
+// it works the chat shows "typing…", and only finished answers arrive; a
+// message that needs no words back gets an emoji reaction instead. A
 // full process restart keeps the conversation and its pending wake-ups: one
 // that fell due while the bot was down reaches the chat once it is back.
 // It comes back on a model that fails, xAI's, which E2E never logs in to:
@@ -23,6 +24,8 @@ import {
 	botCommands,
 	botUsername,
 	connectTestUser,
+	recentMessages,
+	sendAndWaitForReaction,
 	sendAndWaitForReply,
 	sendVoiceAndWaitForReply,
 	waitForBotMessage,
@@ -161,6 +164,15 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 			await say("Jak wabi się mój kot? Odpowiedz samym imieniem."),
 			new RegExp(cat, "i"),
 		);
+	});
+
+	await t.test("answers thanks with a reaction alone", async () => {
+		const thanks = "Dzięki! Wystarczy sama reakcja 👍, bez słów.";
+		const emoji = await sendAndWaitForReaction(client, bot, thanks, {
+			timeoutMs: 2 * MINUTE,
+		});
+		assert.equal(emoji, "👍");
+		assert.deepEqual(await recentMessages(client, bot, 1), [thanks]);
 	});
 
 	await t.test("hears a long quote", async () => {

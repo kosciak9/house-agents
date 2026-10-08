@@ -6,9 +6,11 @@ import {
 	type Harness,
 	watchEvents,
 } from "@earendil-works/pi-durable";
+import type { ReactionTypeEmoji } from "grammy/types";
 
-import { isSilentReply } from "../scheduler/silent.ts";
+import { type Ending, endingOf } from "../endings/endings.ts";
 import { bot, chatId } from "./bot.ts";
+import { takeReplyTarget } from "./reply-target.ts";
 
 const assistantText = (message: AssistantMessage): string =>
 	message.content
@@ -32,6 +34,39 @@ const finalResponseText = (event: AgentEvent): string | undefined => {
 	return assistantText(message) || undefined;
 };
 
+// Telegram's reaction emoji carry no variation selector ("❤", not "❤️").
+const reactionEmoji = (emoji: string) =>
+	emoji.replaceAll("️", "") as ReactionTypeEmoji["emoji"];
+
+/** Whether the reaction landed on the user's message. */
+const react = async (messageId: number, emoji: string): Promise<boolean> => {
+	try {
+		await bot.api.setMessageReaction(chatId, messageId, [
+			{ type: "emoji", emoji: reactionEmoji(emoji) },
+		]);
+		return true;
+	} catch (error) {
+		// Bots may react only with Telegram's own set of emoji.
+		console.error(`Could not react with ${emoji}:`, error);
+		return false;
+	}
+};
+
+const deliver = async (ending: Ending): Promise<void> => {
+	const target = takeReplyTarget();
+	if (ending.kind === "silent") return;
+
+	// With no message to react to, or an emoji Telegram refuses, the emoji
+	// goes as a message.
+	if (ending.kind === "reaction") {
+		if (target !== undefined && (await react(target, ending.emoji))) return;
+		await bot.api.sendMessage(chatId, ending.emoji);
+		return;
+	}
+
+	await bot.api.sendRichMessage(chatId, { markdown: ending.markdown });
+};
+
 export const forwardAssistantMessages = async (
 	harness: Harness,
 	conversationId: ConversationId,
@@ -39,10 +74,8 @@ export const forwardAssistantMessages = async (
 	const stream = await watchEvents(harness, conversationId, BACKGROUND_CONTEXT);
 
 	stream.start(async (events) => {
-		for (const markdown of events.map(finalResponseText)) {
-			if (markdown === undefined || isSilentReply(markdown)) continue;
-
-			await bot.api.sendRichMessage(chatId, { markdown });
+		for (const text of events.map(finalResponseText)) {
+			if (text !== undefined) await deliver(endingOf(text));
 		}
 	});
 };
