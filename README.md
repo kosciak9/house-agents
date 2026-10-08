@@ -4,8 +4,8 @@ A house assistant for one person, talking through Telegram.
 
 There is one user and one conversation, kept forever: the bot serves a single
 chat and never starts another thread. Everything happens in that thread —
-text, photos and voice notes in, replies out — and the assistant remembers
-what matters from it long after the context is compacted.
+text, photos, files and voice notes in, replies out — and the assistant
+remembers what matters from it long after the context is compacted.
 
 It is built on [pi-durable](https://www.npmjs.com/package/@earendil-works/pi-durable),
 which keeps the conversation durable across restarts. On top of it:
@@ -14,6 +14,8 @@ which keeps the conversation durable across restarts. On top of it:
   conversation;
 - long-term memory beyond a single context;
 - voice notes transcribed with Whisper;
+- files read before the agent sees them: PDF pages as images, and other
+  documents converted to PDF by Gotenberg first;
 - tools from MCP servers, each agent allowed only the ones it is given;
 - subagents that take tasks in the background and report back to the thread.
 
@@ -44,7 +46,7 @@ podman run -d --name house-agents \
 MCP servers started over stdio run inside the container, which is Alpine
 (musl) with only Node (`npx` included); anything else, or anything built
 for glibc, is better reached by `url`. The Whisper endpoint and those URLs
-must be reachable from the container.
+must be reachable from the container, as must Gotenberg's, if set.
 
 ### What to keep
 

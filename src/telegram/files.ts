@@ -6,6 +6,9 @@ const fileUrl = (filePath: string): string =>
 		? `https://api.telegram.org/file/bot${bot.token}/test/${filePath}`
 		: `https://api.telegram.org/file/bot${bot.token}/${filePath}`;
 
+/** The largest file the Bot API lets a bot download. */
+export const MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
+
 /** Downloads a file the chat sent, by its Telegram file id. */
 export const downloadFile = async (fileId: string): Promise<Buffer> => {
 	const file = await bot.api.getFile(fileId);

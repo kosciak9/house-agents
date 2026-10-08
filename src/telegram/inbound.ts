@@ -4,9 +4,10 @@ import type { CommandContext, Context, Filter } from "grammy";
 
 import { root } from "../agent/harness.ts";
 import { memory } from "../agent/memory.ts";
+import { readDocument } from "../documents/read.ts";
 import { transcribe } from "../voice/whisper.ts";
 import { bot, chatId } from "./bot.ts";
-import { downloadFile } from "./files.ts";
+import { downloadFile, MAX_DOWNLOAD_BYTES } from "./files.ts";
 import { startProgress, stopProgress } from "./progress.ts";
 
 const submitInput = async (
@@ -60,6 +61,36 @@ export const handlePhotoMessage = async (
 	await submitInput(message_id, [
 		...(caption ? [{ type: "text" as const, text: caption }] : []),
 		{ type: "image", data: image.toString("base64"), mimeType: "image/jpeg" },
+	]);
+};
+
+// The model gets the file as it can read it (src/documents/read.ts); its
+// caption, if any, comes along as text.
+export const handleDocumentMessage = async (
+	ctx: Filter<Context, "message:document">,
+): Promise<void> => {
+	const { caption, document, message_id } = ctx.message;
+	const fileName = document.file_name ?? "file";
+	const mimeType = document.mime_type ?? "application/octet-stream";
+	console.log("Received document:", fileName, mimeType);
+
+	const content =
+		(document.file_size ?? 0) > MAX_DOWNLOAD_BYTES
+			? [
+					{
+						type: "text" as const,
+						text: `The user sent the file "${fileName}" (${mimeType}). It is larger than the 20 MB a Telegram bot may download, so its content cannot be shown.`,
+					},
+				]
+			: await readDocument({
+					data: await downloadFile(document.file_id),
+					fileName,
+					mimeType,
+				});
+
+	await submitInput(message_id, [
+		...(caption ? [{ type: "text" as const, text: caption }] : []),
+		...content,
 	]);
 };
 

@@ -89,6 +89,12 @@ export type Config = {
 	};
 	/** Whisper's `/v1/audio/transcriptions` endpoint, e.g. whisper.cpp's. */
 	whisperUrl: string;
+	/**
+	 * Gotenberg, e.g. `http://localhost:3000`, which converts files sent in
+	 * the chat to PDF when the model cannot read them as they are. Without it,
+	 * only images, PDFs and text files are read.
+	 */
+	gotenbergUrl?: string;
 	/** The MCP servers the agent and its subagents may use, by name. */
 	mcpServers?: Record<string, McpServer>;
 	/** What the agent itself may use of them. */
@@ -147,6 +153,13 @@ export const useConfig = (value: Config): void => {
 	}
 	if (typeof value.whisperUrl !== "string" || !value.whisperUrl) {
 		throw new Error("config.whisperUrl is required");
+	}
+	if (
+		value.gotenbergUrl !== undefined &&
+		(typeof value.gotenbergUrl !== "string" ||
+			!URL.canParse(value.gotenbergUrl))
+	) {
+		throw new Error("config.gotenbergUrl must be a URL");
 	}
 	current = value;
 };

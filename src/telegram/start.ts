@@ -7,6 +7,7 @@ import { createDiagnosticsCommand } from "./diagnostics.ts";
 import { announceModelSwitches } from "./fallback.ts";
 import {
 	handleCompactCommand,
+	handleDocumentMessage,
 	handlePhotoMessage,
 	handleTextMessage,
 	handleVoiceMessage,
@@ -96,6 +97,7 @@ export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 	);
 	chat.on("message:photo", handlePhotoMessage);
 	chat.on("message:voice", handleVoiceMessage);
+	chat.on("message:document", handleDocumentMessage);
 	// Only the cause: the context it comes with holds the bot's token.
 	bot.catch(({ error, ctx }) => {
 		console.error(`Telegram error in update ${ctx.update.update_id}:`, error);

@@ -20,8 +20,10 @@
 		"@earendil-works/pi-codemode": "^1.0.3",
 		"@earendil-works/pi-durable": "^1.0.3",
 		"@modelcontextprotocol/sdk": "^1.32.1",
+		"@napi-rs/canvas": "^1.0.10",
 		"croner": "^10.0.1",
-		"grammy": "^1.46.0"
+		"grammy": "^1.46.0",
+		"pdfjs-dist": "^6.4.299"
 	},
 	"scripts": {
 		"check": "biome check . && tsc && node scripts/versions.ts",

@@ -283,6 +283,31 @@ export const sendPhotoAndWaitForReply = (
 	);
 
 /**
+ * Sends the file at `documentPath` as a document (a file, not a photo) with
+ * `caption` and resolves with the bot's next message that `matches`.
+ */
+export const sendDocumentAndWaitForReply = (
+	client: tdl.Client,
+	bot: string,
+	documentPath: string,
+	caption: string,
+	options: { matches?: MessageFilter; timeoutMs?: number } = {},
+): Promise<string> =>
+	sendContentAndWaitForReply(
+		client,
+		bot,
+		{
+			_: "inputMessageDocument",
+			document: {
+				_: "inputDocument",
+				document: { _: "inputFileLocal", path: documentPath },
+			},
+			caption: { _: "formattedText", text: caption },
+		},
+		options,
+	);
+
+/**
  * Sends the OGG Opus file at `voicePath` as a voice note and resolves with the
  * bot's next message that `matches`.
  */
