@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -381,6 +381,112 @@ export const sendDocumentAndWaitForReply = (
 		},
 		options,
 	);
+
+/**
+ * Waits for both a named document and the completed text reply, in either order.
+ * Listens before sending, and ignores background acknowledgements that do not
+ * match. Downloads the actual Telegram attachment, not a local exported file.
+ */
+export const sendAndWaitForDocument = async (
+	client: tdl.Client,
+	bot: string,
+	input: { text: string } | { documentPath: string; caption: string },
+	{
+		fileName,
+		matches,
+		timeoutMs = 120_000,
+	}: { fileName: string; matches: MessageFilter; timeoutMs?: number },
+): Promise<{
+	data: Buffer;
+	fileName: string;
+	mimeType: string;
+	reply: string;
+	texts: string[];
+}> => {
+	const chatId = await botChatId(client, bot);
+	const texts: string[] = [];
+	let document: Message | undefined;
+	let reply: string | undefined;
+	let unsubscribe = () => {};
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const received = new Promise<{ document: Message; reply: string }>(
+		(resolve, reject) => {
+			const onUpdate = (update: Update) => {
+				if (update._ !== "updateNewMessage") return;
+				const { message } = update;
+				if (message.chat_id !== chatId || message.is_outgoing) return;
+				const text = messageText(message);
+				if (text) texts.push(text);
+				if (text && matches(text)) reply = text;
+				if (
+					message.content._ === "messageDocument" &&
+					message.content.document.file_name === fileName
+				)
+					document = message;
+				if (document && reply !== undefined) resolve({ document, reply });
+			};
+			client.on("update", onUpdate);
+			unsubscribe = () => client.off("update", onUpdate);
+			timer = setTimeout(
+				() =>
+					reject(
+						new Error(
+							`No document ${fileName} and completed reply within ${timeoutMs} ms ` +
+								`(document received: ${Boolean(document)}, reply received: ${reply !== undefined}; texts: ${texts.join(" | ")})`,
+						),
+					),
+				timeoutMs,
+			);
+		},
+	);
+	// A send failure owns the error; don't leave a rejected waiter unhandled.
+	received.catch(() => {});
+	try {
+		await client.invoke({
+			_: "sendMessage",
+			chat_id: chatId,
+			input_message_content:
+				"text" in input
+					? {
+							_: "inputMessageText",
+							text: { _: "formattedText", text: input.text },
+						}
+					: {
+							_: "inputMessageDocument",
+							document: {
+								_: "inputDocument",
+								document: { _: "inputFileLocal", path: input.documentPath },
+							},
+							caption: { _: "formattedText", text: input.caption },
+						},
+		});
+		const result = await received;
+		if (result.document.content._ !== "messageDocument")
+			throw new Error("Expected a Telegram document.");
+		const attachment = result.document.content.document;
+		const downloaded = await client.invoke({
+			_: "downloadFile",
+			file_id: attachment.document.id,
+			priority: 32,
+			synchronous: true,
+		});
+		if (!downloaded.local.is_downloading_completed || !downloaded.local.path)
+			throw new Error(`Telegram did not finish downloading ${fileName}.`);
+		const data = readFileSync(downloaded.local.path);
+		if (data.length !== attachment.document.size)
+			throw new Error(`Incomplete Telegram document ${fileName}.`);
+		return {
+			data,
+			fileName: attachment.file_name,
+			mimeType: attachment.mime_type,
+			reply: result.reply,
+			texts,
+		};
+	} finally {
+		clearTimeout(timer);
+		unsubscribe();
+	}
+};
 
 /**
  * Sends the OGG Opus file at `voicePath` as a voice note and resolves with the

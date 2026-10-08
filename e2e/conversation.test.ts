@@ -2,6 +2,10 @@
 // prompt says; it hears voice messages (photos: `e2e/photo.test.ts`). While
 // it works the chat shows "typing…", and only finished answers arrive; a
 // message that needs no words back gets an emoji reaction instead. A
+// real uploaded XLSX is edited through code mode and returned as downloadable
+// bytes with typed literals and working formulas. A background general subagent
+// edits its own copy of the immutable source; the parent delivers its export.
+// These RAM files are used before the restart (not expected to survive it). A
 // full process restart keeps the conversation and its pending wake-ups: one
 // that fell due while the bot was down reaches the chat once it is back.
 // It comes back on a model that fails, xAI's, which E2E never logs in to:
@@ -12,11 +16,12 @@
 // Runs its own bot processes on one session that outlives each of them; the
 // steps build on each other, so they run as one chain.
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 
+import { Model } from "@ironcalc/nodejs";
 import type { Client } from "tdl";
 
 import { DEFAULT_PROMPT, type RunningBot, startBot } from "./bot.ts";
@@ -25,6 +30,7 @@ import {
 	botUsername,
 	connectTestUser,
 	recentMessages,
+	sendAndWaitForDocument,
 	sendAndWaitForReaction,
 	sendAndWaitForReply,
 	sendVoiceAndWaitForReply,
@@ -107,8 +113,8 @@ after(async () => {
 	rmSync(directory, { recursive: true, force: true });
 });
 
-test("conversation: persona, voice, restart, fallback and compaction", {
-	timeout: 8 * MINUTE,
+test("conversation: persona, voice, spreadsheets, general, restart, fallback and compaction", {
+	timeout: 12 * MINUTE,
 }, async (t) => {
 	await t.test("introduces itself by its prompt's name", async () => {
 		assert.match(
@@ -149,6 +155,154 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 		});
 		assert.match(reply, /pary/i);
 	});
+
+	await t.test(
+		"edits an uploaded XLSX and delivers real typed cells and formulas",
+		async () => {
+			const sourcePath = path.join(directory, `source-${runId}.xlsx`);
+			const source = new Model("Source", "en", "UTC", "en");
+			source.renameSheet(0, "Data");
+			source.updateCellWithText(0, 1, 1, runId);
+			source.updateCellWithNumber(0, 2, 1, 10);
+			source.updateCellWithNumber(0, 2, 2, 5);
+			source.updateCellWithFormula(0, 2, 3, "=SUM(A2,B2)");
+			source.updateCellWithText(0, 2, 4, "00123");
+			source.updateCellWithText(0, 2, 5, "2026-10-08");
+			source.updateCellWithText(0, 2, 6, "=literal");
+			source.updateCellWithBool(0, 2, 7, true);
+			source.updateCellWithText(0, 2, 8, "clear me");
+			source.evaluate();
+			source.saveToXlsx(sourcePath);
+
+			const fileName = `edited-${runId}.xlsx`;
+			const completed = `XLSX-DONE-${runId}`;
+			const attachment = await sendAndWaitForDocument(
+				client,
+				bot,
+				{
+					documentPath: sourcePath,
+					caption:
+						"Use code mode spreadsheet tools to open an editable copy of this XLSX. " +
+						"On Data set A2 to numeric 20, B2 to numeric 7, C2 to the formula =SUM(A2,B2). " +
+						"Write D2 as literal text 00123, E2 as literal text 2026-10-08, " +
+						"F2 as literal text =literal (NOT a formula), G2 as boolean false, and clear H2. " +
+						"Then insert one entire row at row 2, letting the formula references update, " +
+						"and rename Data to Edited. Preserve A1 and all other cells. " +
+						`Export as ${fileName} and send me the actual XLSX document through Telegram. ` +
+						"Keep the original uploaded file available unchanged for my next request. " +
+						`After sending the document reply with only ${completed}.`,
+				},
+				{
+					fileName,
+					matches: (text) => text.includes(completed),
+					timeoutMs: 3 * MINUTE,
+				},
+			);
+			assert.equal(attachment.fileName, fileName);
+			assert.equal(
+				attachment.mimeType,
+				"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+			);
+			const exportedPath = path.join(directory, fileName);
+			writeFileSync(exportedPath, attachment.data);
+			const edited = Model.fromXlsx(exportedPath, "en", "UTC", "en");
+			assert.deepEqual(
+				edited.getWorksheetsProperties().map(({ name }) => name),
+				["Edited"],
+			);
+			assert.equal(edited.getCellValue(0, 1, 1), runId);
+			assert.equal(edited.getCellValue(0, 2, 1), null);
+			assert.equal(edited.getCellValue(0, 3, 1), 20);
+			assert.equal(edited.getCellValue(0, 3, 2), 7);
+			assert.equal(edited.getCellFormula(0, 3, 3), "=SUM(A3,B3)");
+			edited.evaluate();
+			assert.equal(edited.getCellValue(0, 3, 3), 27);
+			for (const [column, value] of [
+				[4, "00123"],
+				[5, "2026-10-08"],
+				[6, "=literal"],
+			] as const) {
+				assert.equal(edited.getCellValue(0, 3, column), value);
+				assert.equal(edited.getCellType(0, 3, column), 2);
+				assert.equal(edited.getCellFormula(0, 3, column), null);
+			}
+			assert.equal(edited.getCellValue(0, 3, 7), false);
+			assert.equal(edited.getCellValue(0, 3, 8), null);
+		},
+	);
+
+	await t.test(
+		"general edits an isolated source copy in the background and parent delivers it",
+		async () => {
+			const fileName = `general-${runId}.xlsx`;
+			const started = `GENERAL-START-${runId}`;
+			const completed = `GENERAL-DONE-${runId}`;
+			const attachment = await sendAndWaitForDocument(
+				client,
+				bot,
+				{
+					text:
+						"Delegate this whole editing task to a general subagent in the background, " +
+						"do not edit it yourself. Pass it the original uploaded " +
+						`source-${runId}.xlsx fileId (not the edited export), and these complete requirements: ` +
+						"Open your own editable copy using code mode spreadsheet tools. " +
+						"Read Data A2 and B2 before editing and report their original numeric values. " +
+						"Set A2 to numeric 40 and B2 to numeric 2; preserve the existing C2 formula. " +
+						"Write D2 as literal text 00456, E2 as literal text 2027-01-02, " +
+						"F2 as literal text =not a formula, G2 as boolean false, and clear H2. " +
+						"Preserve A1 and all other cells, including sheet name Data. " +
+						`Export as ${fileName}, return its exported fileId and the original A2/B2 values ` +
+						"to the parent in text; do not send Telegram messages or file bytes. " +
+						`You (the parent) should first acknowledge with only ${started}. ` +
+						"When general finishes, send me its actual exported XLSX document through Telegram, " +
+						`then reply with ${completed} and its reported original values in the form SOURCE=<A2>,<B2>.`,
+				},
+				{
+					fileName,
+					matches: (text) => text.includes(completed),
+					timeoutMs: 3 * MINUTE,
+				},
+			);
+			assert.ok(
+				attachment.texts.some((text) => text.includes(started)),
+				`Missing background acknowledgement; received: ${attachment.texts.join(" | ")}`,
+			);
+			assert.ok(
+				attachment.texts.findIndex((text) => text.includes(started)) <
+					attachment.texts.findIndex((text) => text.includes(completed)),
+				"Background acknowledgement must precede completion",
+			);
+			assert.match(attachment.reply, /SOURCE=10,5/);
+			assert.equal(
+				attachment.mimeType,
+				"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+			);
+			const exportedPath = path.join(directory, fileName);
+			writeFileSync(exportedPath, attachment.data);
+			const edited = Model.fromXlsx(exportedPath, "en", "UTC", "en");
+			assert.deepEqual(
+				edited.getWorksheetsProperties().map(({ name }) => name),
+				["Data"],
+			);
+			assert.equal(edited.getCellValue(0, 1, 1), runId);
+			assert.equal(edited.getCellValue(0, 2, 1), 40);
+			assert.equal(edited.getCellValue(0, 2, 2), 2);
+			assert.equal(edited.getCellFormula(0, 2, 3), "=SUM(A2,B2)");
+			edited.evaluate();
+			assert.equal(edited.getCellValue(0, 2, 3), 42);
+			for (const [column, value] of [
+				[4, "00456"],
+				[5, "2027-01-02"],
+				[6, "=not a formula"],
+			] as const) {
+				assert.equal(edited.getCellValue(0, 2, column), value);
+				assert.equal(edited.getCellType(0, 2, column), 2);
+				assert.equal(edited.getCellFormula(0, 2, column), null);
+			}
+			assert.equal(edited.getCellValue(0, 2, 7), false);
+			assert.equal(edited.getCellValue(0, 2, 8), null);
+		},
+	);
 
 	await t.test("hears a fact and schedules a wake-up, typing", async () => {
 		const activity = await watchBotActivity(client, bot);
