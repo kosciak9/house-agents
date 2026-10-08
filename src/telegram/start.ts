@@ -26,6 +26,7 @@ import {
 	LOGIN_COMMAND,
 } from "./mcp.ts";
 import { forwardAssistantMessages } from "./outbound.ts";
+import { showTyping } from "./typing.ts";
 
 /**
  * Sends every answer of the conversation to the chat, and a word whenever the
@@ -93,11 +94,12 @@ export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 		"message:text",
 		createLoginAnswer(mcp),
 		takeLoginAnswer,
+		showTyping,
 		handleTextMessage,
 	);
-	chat.on("message:photo", handlePhotoMessage);
-	chat.on("message:voice", handleVoiceMessage);
-	chat.on("message:document", handleDocumentMessage);
+	chat.on("message:photo", showTyping, handlePhotoMessage);
+	chat.on("message:voice", showTyping, handleVoiceMessage);
+	chat.on("message:document", showTyping, handleDocumentMessage);
 	// Only the cause: the context it comes with holds the bot's token.
 	bot.catch(({ error, ctx }) => {
 		console.error(`Telegram error in update ${ctx.update.update_id}:`, error);

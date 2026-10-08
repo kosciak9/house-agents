@@ -1,5 +1,6 @@
 // Contract: one conversation, as the user lives it. The agent is who its
-// prompt says; it hears voice messages (photos: `e2e/photo.test.ts`). A
+// prompt says; it hears voice messages (photos: `e2e/photo.test.ts`). While
+// it works the chat shows "typing…", and only finished answers arrive. A
 // full process restart keeps the conversation and its pending wake-ups: one
 // that fell due while the bot was down reaches the chat once it is back.
 // It comes back on a model that fails, xAI's, which E2E never logs in to:
@@ -25,6 +26,7 @@ import {
 	sendAndWaitForReply,
 	sendVoiceAndWaitForReply,
 	waitForBotMessage,
+	watchBotActivity,
 } from "./telegram/client.ts";
 
 const MINUTE = 60_000;
@@ -113,12 +115,16 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 		assert.match(reply, /pary/i);
 	});
 
-	await t.test("hears a fact and schedules a wake-up", async () => {
+	await t.test("hears a fact and schedules a wake-up, typing", async () => {
+		const activity = await watchBotActivity(client, bot);
 		await say(
 			`Mam nowego kota, wabi się ${cat}. ` +
 				`Ustaw też pobudkę za ${WAKEUP_DELAY_SECONDS} sekund z promptem: ` +
 				`"Odpowiedz dokładnie tekstem: ${token}". Potwierdź jednym zdaniem.`,
 		);
+		// While it works, even through tool calls, the chat sees "typing…" and
+		// only the finished answer: nothing streams.
+		assert.deepEqual(activity.stop(), { typing: true, drafts: false });
 	});
 
 	await t.test("stays down past the wake-up's due time", async () => {

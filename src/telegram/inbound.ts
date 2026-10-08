@@ -8,31 +8,21 @@ import { readDocument } from "../documents/read.ts";
 import { transcribe } from "../voice/whisper.ts";
 import { bot, chatId } from "./bot.ts";
 import { downloadFile, MAX_DOWNLOAD_BYTES } from "./files.ts";
-import { startProgress, stopProgress } from "./progress.ts";
 
-const submitInput = async (
-	messageId: number,
-	content: UserInput,
-): Promise<void> => {
-	startProgress(messageId);
+const submitInput = async (content: UserInput): Promise<void> => {
+	const submission = await root.submit(
+		{ type: "input", content },
+		BACKGROUND_CONTEXT,
+	);
 
-	try {
-		const submission = await root.submit(
-			{ type: "input", content },
-			BACKGROUND_CONTEXT,
-		);
+	const settled = await submission.wait(BACKGROUND_CONTEXT);
 
-		const settled = await submission.wait(BACKGROUND_CONTEXT);
-
-		// An input /compact cut short needs no word; any other one left unanswered
-		// tells the chat why, e.g. that no model it can use is logged in.
-		if (settled.status === "unanswered" && settled.reason !== "aborted") {
-			const why =
-				typeof settled.detail === "string" ? settled.detail : settled.reason;
-			await bot.api.sendMessage(chatId, `⚠️ Nie udało się odpowiedzieć: ${why}`);
-		}
-	} finally {
-		stopProgress();
+	// An input /compact cut short needs no word; any other one left unanswered
+	// tells the chat why, e.g. that no model it can use is logged in.
+	if (settled.status === "unanswered" && settled.reason !== "aborted") {
+		const why =
+			typeof settled.detail === "string" ? settled.detail : settled.reason;
+		await bot.api.sendMessage(chatId, `⚠️ Nie udało się odpowiedzieć: ${why}`);
 	}
 };
 
@@ -41,14 +31,14 @@ export const handleTextMessage = async (
 ): Promise<void> => {
 	console.log("Received message:", ctx.message.text);
 
-	await submitInput(ctx.message.message_id, ctx.message.text);
+	await submitInput(ctx.message.text);
 };
 
 // The model sees the photo itself; its caption, if any, comes along as text.
 export const handlePhotoMessage = async (
 	ctx: Filter<Context, "message:photo">,
 ): Promise<void> => {
-	const { caption, photo, message_id } = ctx.message;
+	const { caption, photo } = ctx.message;
 	console.log("Received photo:", caption ?? "");
 
 	// Telegram lists the sizes of a photo from smallest to largest.
@@ -58,7 +48,7 @@ export const handlePhotoMessage = async (
 	// Telegram re-encodes every photo as JPEG.
 	const image = await downloadFile(largest.file_id);
 
-	await submitInput(message_id, [
+	await submitInput([
 		...(caption ? [{ type: "text" as const, text: caption }] : []),
 		{ type: "image", data: image.toString("base64"), mimeType: "image/jpeg" },
 	]);
@@ -69,7 +59,7 @@ export const handlePhotoMessage = async (
 export const handleDocumentMessage = async (
 	ctx: Filter<Context, "message:document">,
 ): Promise<void> => {
-	const { caption, document, message_id } = ctx.message;
+	const { caption, document } = ctx.message;
 	const fileName = document.file_name ?? "file";
 	const mimeType = document.mime_type ?? "application/octet-stream";
 	console.log("Received document:", fileName, mimeType);
@@ -88,7 +78,7 @@ export const handleDocumentMessage = async (
 					mimeType,
 				});
 
-	await submitInput(message_id, [
+	await submitInput([
 		...(caption ? [{ type: "text" as const, text: caption }] : []),
 		...content,
 	]);
@@ -98,7 +88,7 @@ export const handleDocumentMessage = async (
 export const handleVoiceMessage = async (
 	ctx: Filter<Context, "message:voice">,
 ): Promise<void> => {
-	const { voice, message_id } = ctx.message;
+	const { voice } = ctx.message;
 
 	const text = await transcribe({
 		data: await downloadFile(voice.file_id),
@@ -108,7 +98,7 @@ export const handleVoiceMessage = async (
 	console.log("Received voice:", text);
 	if (!text) return;
 
-	await submitInput(message_id, text);
+	await submitInput(text);
 };
 
 // Ends the session: it becomes a line of long-term memory and a new context

@@ -196,6 +196,33 @@ const sendContentAndWaitForReply = async (
 	return reply;
 };
 
+/**
+ * Records what the bot shows in the chat besides messages: whether it showed
+ * "typing…", and whether it streamed a draft. `stop()` returns both.
+ */
+export const watchBotActivity = async (
+	client: tdl.Client,
+	bot: string,
+): Promise<{ stop: () => { typing: boolean; drafts: boolean } }> => {
+	const chatId = await botChatId(client, bot);
+	const seen = { typing: false, drafts: false };
+	const onUpdate = (update: Update) => {
+		if (update._ === "updateChatAction" && update.chat_id === chatId) {
+			if (update.action._ === "chatActionTyping") seen.typing = true;
+		}
+		if (update._ === "updatePendingMessage" && update.chat_id === chatId) {
+			seen.drafts = true;
+		}
+	};
+	client.on("update", onUpdate);
+	return {
+		stop: () => {
+			client.off("update", onUpdate);
+			return seen;
+		},
+	};
+};
+
 /** The commands the chat's menu offers for the bot. */
 export const botCommands = async (
 	client: tdl.Client,
