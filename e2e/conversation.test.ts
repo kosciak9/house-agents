@@ -1,6 +1,6 @@
 // Contract: one conversation, as the user lives it. The agent is who its
 // prompt says; it hears voice messages (photos: `e2e/photo.test.ts`). While
-// it works the chat shows "typing…", and only finished answers arrive; a
+// it works the chat shows "typing…" and a draft listing its tool calls; a
 // message that needs no words back gets an emoji reaction instead. A
 // full process restart keeps the conversation and its pending wake-ups: one
 // that fell due while the bot was down reaches the chat once it is back.
@@ -150,16 +150,15 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 		assert.match(reply, /pary/i);
 	});
 
-	await t.test("hears a fact and schedules a wake-up, typing", async () => {
+	await t.test("hears a fact and schedules a wake-up, progress", async () => {
 		const activity = await watchBotActivity(client, bot);
 		await say(
 			`Mam nowego kota, wabi się ${cat}. ` +
 				`Ustaw też pobudkę za ${WAKEUP_DELAY_SECONDS} sekund z promptem: ` +
 				`"Odpowiedz dokładnie tekstem: ${token}". Potwierdź jednym zdaniem.`,
 		);
-		// While it works, even through tool calls, the chat sees "typing…" and
-		// only the finished answer: nothing streams.
-		assert.deepEqual(activity.stop(), { typing: true, drafts: false });
+		// While it works the chat sees "typing…", and its tool calls in a draft.
+		assert.deepEqual(activity.stop(), { typing: true, drafts: true });
 	});
 
 	await t.test("stays down past the wake-up's due time", async () => {

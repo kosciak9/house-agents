@@ -10,6 +10,7 @@ import { officeFormat, officeFormats } from "../office/formats.ts";
 import { transcribe } from "../voice/whisper.ts";
 import { bot, chatId } from "./bot.ts";
 import { downloadFile, MAX_DOWNLOAD_BYTES } from "./files.ts";
+import { startProgress, stopProgress } from "./progress.ts";
 import { setReplyTarget } from "./reply-target.ts";
 
 // How the model refers to a file the chat sent in file and Office tools.
@@ -26,19 +27,25 @@ const submitInput = async (
 	content: UserInput,
 ): Promise<void> => {
 	setReplyTarget(messageId);
-	const submission = await root.submit(
-		{ type: "input", content },
-		BACKGROUND_CONTEXT,
-	);
+	startProgress(messageId);
 
-	const settled = await submission.wait(BACKGROUND_CONTEXT);
+	try {
+		const submission = await root.submit(
+			{ type: "input", content },
+			BACKGROUND_CONTEXT,
+		);
 
-	// An input /compact cut short needs no word; any other one left unanswered
-	// tells the chat why, e.g. that no model it can use is logged in.
-	if (settled.status === "unanswered" && settled.reason !== "aborted") {
-		const why =
-			typeof settled.detail === "string" ? settled.detail : settled.reason;
-		await bot.api.sendMessage(chatId, `⚠️ Nie udało się odpowiedzieć: ${why}`);
+		const settled = await submission.wait(BACKGROUND_CONTEXT);
+
+		// An input /compact cut short needs no word; any other one left unanswered
+		// tells the chat why, e.g. that no model it can use is logged in.
+		if (settled.status === "unanswered" && settled.reason !== "aborted") {
+			const why =
+				typeof settled.detail === "string" ? settled.detail : settled.reason;
+			await bot.api.sendMessage(chatId, `⚠️ Nie udało się odpowiedzieć: ${why}`);
+		}
+	} finally {
+		stopProgress();
 	}
 };
 
