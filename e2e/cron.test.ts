@@ -1,15 +1,18 @@
 // Contract: the agent can create a recurring cron schedule that wakes it up,
 // list it, and delete it so it stops firing; a recurring schedule would fire
 // again within the minute after deletion. A wake-up that has nothing to tell
-// the user fires without a message in the chat.
+// the user fires without a message in the chat. The scripted model
+// (`e2e/scripted-model.ts`) makes the tool calls, so this tests the scheduler,
+// not a model's judgement.
 // Runs its own bot process on an empty session, so no schedule outlives the
-// test. Takes about 2 minutes: cron fires on full minutes.
+// test. Takes about 3 minutes: cron fires on full minutes.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
 import type { Client } from "tdl";
 
 import { type RunningBot, startBot } from "./bot.ts";
+import { call, SCRIPTED_MODEL, say, script } from "./scripted-model.ts";
 import {
 	botUsername,
 	connectTestUser,
@@ -29,16 +32,16 @@ const label = `e2e-${token.toLowerCase()}`;
 const isTick = (text: string) =>
 	new RegExp(`^[\\s"'\`*.!]*${token}[\\s"'\`*.!]*$`).test(text);
 const isNotTick = (text: string) => !isTick(text);
-// Only the silent wake-up's prompt carries it: the agent knows it once that
-// wake-up has fired.
+// The label of a wake-up the silent one schedules: listed once it has fired.
 const code = `SILENT-${token}`;
+const isListed = (list: string, name: string) => list.includes(`] ${name}:`);
 
 let runningBot: RunningBot;
 let client: Client;
 let bot: string;
 
 before(async () => {
-	runningBot = await startBot();
+	runningBot = await startBot({ model: SCRIPTED_MODEL });
 	client = await connectTestUser();
 	bot = botUsername();
 });
@@ -55,10 +58,16 @@ test("cron: create → fires → listed → deleted → stops; silent wake-up", 
 		await sendAndWaitForReply(
 			client,
 			bot,
-			`Utwórz crona "* * * * *" (co minutę, cyklicznie) z etykietą "${label}". ` +
-				`Prompt crona: "Odpowiedz dokładnie tekstem: ${token}". ` +
-				"Potwierdź jednym zdaniem.",
-			{ matches: isNotTick, timeoutMs: 2 * MINUTE },
+			script(
+				call("cron_create", {
+					cron: "* * * * *",
+					prompt: script(say(token)),
+					recurring: true,
+					label,
+				}),
+				say("{{result}}"),
+			),
+			{ matches: isNotTick, timeoutMs: MINUTE },
 		);
 	});
 
@@ -73,20 +82,33 @@ test("cron: create → fires → listed → deleted → stops; silent wake-up", 
 		const list = await sendAndWaitForReply(
 			client,
 			bot,
-			"Wywołaj cron_list i wypisz etykiety wszystkich zaplanowanych zadań.",
-			{ matches: isNotTick, timeoutMs: 2 * MINUTE },
+			script(call("cron_list", {}), say("{{result}}")),
+			{ matches: isNotTick, timeoutMs: MINUTE },
 		);
-		assert.match(list, new RegExp(label, "i"));
+		assert.ok(isListed(list, label), `Not listed: ${list}`);
 	});
 
 	await t.test("deletes the schedule, sets a silent wake-up", async () => {
 		await sendAndWaitForReply(
 			client,
 			bot,
-			`Usuń crona "${label}". Ustaw też pobudkę za 30 sekund z promptem: ` +
-				`"Kontrola w tle, kod ${code}. Wszystko w porządku, nie ma nic ` +
-				'do przekazania użytkownikowi." Potwierdź jednym zdaniem.',
-			{ matches: isNotTick, timeoutMs: 2 * MINUTE },
+			script(
+				// The id the listing gave the schedule.
+				call("cron_delete", { id: `{{match:\\d+(?=\\] ${label}:)}}` }),
+				call("schedule_wakeup", {
+					delaySeconds: 30,
+					prompt: script(
+						call("schedule_wakeup", {
+							delaySeconds: 3600,
+							prompt: script(say("NO_REPLY")),
+							reason: code,
+						}),
+						say("NO_REPLY"),
+					),
+				}),
+				say("{{result}}"),
+			),
+			{ matches: isNotTick, timeoutMs: MINUTE },
 		);
 	});
 
@@ -101,12 +123,13 @@ test("cron: create → fires → listed → deleted → stops; silent wake-up", 
 	});
 
 	await t.test("the silent wake-up did fire", async () => {
-		const reply = await sendAndWaitForReply(
+		const list = await sendAndWaitForReply(
 			client,
 			bot,
-			"Jaki kod był w ostatniej pobudce? Odpowiedz samym kodem.",
-			{ matches: isNotTick, timeoutMs: 2 * MINUTE },
+			script(call("cron_list", {}), say("{{result}}")),
+			{ matches: isNotTick, timeoutMs: MINUTE },
 		);
-		assert.match(reply, new RegExp(code, "i"));
+		assert.ok(isListed(list, code), `Not listed: ${list}`);
+		assert.ok(!isListed(list, label), `Still listed: ${list}`);
 	});
 });

@@ -27,15 +27,22 @@ thread. Don't design for multiple users, chats or parallel threads.
   extra shells. The output is one line per test, why each failure failed, and
   the output of the bot behind each failing file; full logs go to
   `tmp/e2e/<file>.log`. `E2E_VERBOSE=1` streams them live.
-- Keep the suite short: every bot start and every real wait costs time. Add a
-  step to an existing chain (`e2e/conversation.test.ts` is one conversation
-  from start to /compact) rather than a new file, and never test the same
-  contract twice.
+- Keep the suite short: every bot start, every real model turn and every real
+  wait costs time. Add a step to an existing chain (`e2e/conversation.test.ts`
+  is one conversation from start to /compact; `e2e/office.test.ts` one
+  scripted session of Office edits) rather than a new file, and never test the
+  same contract twice.
 - Every checkout shares one test bot: a run waits for another to finish
   (`state/e2e.lock`). Stop `pnpm dev` first; two processes on one bot token
   conflict (`409: Conflict` in the bot output).
-- No unit or mocked tests: E2E drives the real bot in Telegram's test environment
-  (`e2e/bot.ts` starts it on an empty session per test).
+- No unit tests: E2E drives the real bot in Telegram's test environment
+  (`e2e/bot.ts` starts it on an empty session per test). The model is the only
+  thing that may be mocked: contracts of the harness's own logic (tools,
+  working copies, schedules, subagents, delivery) run on the scripted model
+  (`e2e/scripted-model.ts`: the test's message says which tool calls and
+  answers to make). A real model only where the contract is how a model
+  behaves with what the harness gives it: prompt, memory, voice, images,
+  reactions, fallback.
 - Never change a test only to make it pass; tests describe user-facing contracts.
 
 ## Config and env

@@ -56,7 +56,8 @@ const stopProcess = async (child: ChildProcess): Promise<void> => {
  * specialists. MCP servers' OAuth tokens are kept in the state,
  * so they survive a restart too. It signs
  * in to model providers with the real credentials unless `credentialsFile`
- * names other ones. `model` and `fallbackModel` replace `e2e/agent.ts`'s.
+ * names other ones. `model` and `fallbackModel` replace `e2e/agent.ts`'s;
+ * `SCRIPTED_MODEL` (`e2e/scripted-model.ts`) is the scripted one.
  */
 export const startBot = async ({
 	stateDir,

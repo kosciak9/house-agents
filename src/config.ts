@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel, Provider } from "@earendil-works/pi-ai";
 
 // Everything the deployment decides comes in one `Config`, which it passes to
 // `startAgent()` (`src/index.ts`) in code or exports as the default of
@@ -76,6 +76,11 @@ export type Config = {
 	 * the agent turns to it and when `model` answers again.
 	 */
 	fallbackModel?: Model;
+	/**
+	 * Model providers besides the subscriptions logged in to from the chat
+	 * (`/login`), e.g. E2E's scripted model (`e2e/scripted-model.ts`).
+	 */
+	providers?: Provider[];
 	telegram: {
 		/** The one chat the bot serves; it ignores every other one. */
 		chatId: number;
@@ -144,6 +149,9 @@ export const useConfig = (value: Config): void => {
 			typeof value.fallbackModel.modelId !== "string")
 	) {
 		throw new Error("config.fallbackModel needs a provider and a modelId");
+	}
+	if (value.providers !== undefined && !Array.isArray(value.providers)) {
+		throw new Error("config.providers must be an array");
 	}
 	if (!Number.isSafeInteger(value.telegram?.chatId)) {
 		throw new Error("config.telegram.chatId must be an integer chat id");

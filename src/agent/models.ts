@@ -2,6 +2,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
 
+import { config } from "../config.ts";
 import { credentials } from "./credentials.ts";
 
 // pi-ai lists these at 272k tokens, the window of their base price; they take
@@ -28,6 +29,7 @@ models.setProvider({
 	getAllModels: () => (codex.getAllModels?.() ?? []).map(withWindow),
 });
 models.setProvider(xaiProvider());
+for (const provider of config().providers ?? []) models.setProvider(provider);
 
 /** A cheap model for helper work that would waste the agent's own turns. */
 export const SMALL_MODEL = { provider: "openai-codex", modelId: "gpt-6-luna" };
