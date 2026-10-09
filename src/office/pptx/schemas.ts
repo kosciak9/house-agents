@@ -4,7 +4,7 @@ const object = <T extends Parameters<typeof Type.Object>[0]>(properties: T) =>
 	Type.Object(properties, { additionalProperties: false });
 export const name = Type.String({ minLength: 1, maxLength: 200 });
 export const id = Type.String({ minLength: 1, maxLength: 128 });
-export const color = Type.String({ pattern: "^#?[0-9A-Fa-f]{6}$" });
+const color = Type.String({ pattern: "^#?[0-9A-Fa-f]{6}$" });
 const text = Type.String({ maxLength: 100_000 });
 const index = Type.Integer({ minimum: 0, maximum: 10_000 });
 const alignment = Type.Union([

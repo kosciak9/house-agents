@@ -1,5 +1,4 @@
 import { createRegistry } from "@earendil-works/pi-durable";
-import { config } from "../config.ts";
 import { EndingsExtension } from "../endings/endings.ts";
 import { servers, tokens } from "../mcp/config.ts";
 import { SchedulerExtension } from "../scheduler/extension.ts";
@@ -21,6 +20,5 @@ registry.install(
 		subagents,
 		servers,
 		tokens,
-		general: config,
 	}),
 );

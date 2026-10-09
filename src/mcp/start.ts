@@ -2,7 +2,7 @@ import type { CodemodeTool } from "@earendil-works/pi-codemode";
 import { defineExtension, type Registry } from "@earendil-works/pi-durable";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
-import { createCodemodeTool } from "../codemode/extension.ts";
+import { createCodemodeTool } from "../codemode/tool.ts";
 import { allowedTools, connectServer } from "./client.ts";
 import type { Policy, ServerConfig } from "./config.ts";
 import type { TokenStore } from "./oauth.ts";
@@ -19,10 +19,10 @@ export type Mcp = {
 };
 
 /**
- * Connects to every server of the agent's `policy` and offers the tools it
- * allows alongside local tools in the agent's `codemode` (extension `mcp`). A server the user
- * has not logged in to, or one that cannot be reached, is left out, so the
- * agent still runs without it.
+ * Offers the agent `localTools` and the tools its `policy` allows of each
+ * server in one `codemode` tool (extension `codemode`), installed anew
+ * whenever a server connects. A server the user has not logged in to, or one
+ * that cannot be reached, is left out, so the agent still runs without it.
  */
 export const startMcp = async ({
 	registry,
@@ -46,11 +46,11 @@ export const startMcp = async ({
 	const installCodemode = () => {
 		const tools = [...localTools, ...[...serverTools.values()].flat()];
 		if (tools.length === 0) {
-			registry.uninstall({ name: "mcp" });
+			registry.uninstall({ name: "codemode" });
 			return;
 		}
 		registry.install(
-			defineExtension({ name: "mcp", tools: [createCodemodeTool(tools)] }),
+			defineExtension({ name: "codemode", tools: [createCodemodeTool(tools)] }),
 		);
 	};
 

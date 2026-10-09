@@ -1,36 +1,21 @@
 import { readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { parentPort, workerData } from "node:worker_threads";
 import { Model, UserModel } from "@ironcalc/nodejs";
 
-type Request = { id: number; operation: string; args: Record<string, unknown> };
-const port = parentPort;
-if (!port) throw new Error("Spreadsheet worker requires a parent port.");
-const initial = workerData as {
-	directory: string;
-	bytes?: Uint8Array;
-	name: string;
-};
-const filePath = `${initial.directory}/workbook.xlsx`;
+import { fatalError, serveWorkingCopy } from "../worker.ts";
+import { MAX_COLUMNS, MAX_ROWS } from "./schemas.ts";
+
+let filePath: string;
 let model: UserModel;
-if (initial.bytes) {
-	writeFileSync(filePath, initial.bytes);
-	try {
-		model = UserModel.fromXlsx(filePath, "en", "UTC", "en");
-	} finally {
-		unlinkSync(filePath);
-	}
-} else model = new UserModel(initial.name, "en", "UTC", "en");
 
 const compact = () => {
 	const bytes = model.toBytes();
 	if (bytes.byteLength > 64 * 1024 * 1024)
-		throw new Error(
+		throw fatalError(
 			"Workbook exceeds the 64 MiB internal model budget. Close it and use a smaller source.",
 		);
 	// No collaborative diffs or unbounded undo history are needed for an isolated editable copy.
 	model = UserModel.fromBytes(bytes, "en");
 };
-compact();
 
 const info = () => ({
 	name: model.getName(),
@@ -41,7 +26,6 @@ const info = () => ({
 		bounds: model.getSheetDimensions(index),
 	})),
 });
-port.postMessage({ id: 0, result: info() });
 
 const run = (operation: string, args: Record<string, unknown>): unknown => {
 	if (operation === "info") return info();
@@ -206,7 +190,7 @@ const run = (operation: string, args: Record<string, unknown>): unknown => {
 						destinationColumn = c + count;
 				}
 			}
-			if (destinationRow <= 1048576 && destinationColumn <= 16384)
+			if (destinationRow <= MAX_ROWS && destinationColumn <= MAX_COLUMNS)
 				literals.push({
 					sheet: s,
 					row: destinationRow,
@@ -263,15 +247,17 @@ const run = (operation: string, args: Record<string, unknown>): unknown => {
 	compact();
 	return info();
 };
-port.on("message", ({ id, operation, args }: Request) => {
-	try {
-		port.postMessage({ id, result: run(operation, args) });
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		port.postMessage({
-			id,
-			error: message,
-			fatal: message.includes("model budget"),
-		});
-	}
+
+await serveWorkingCopy(({ directory, name, bytes }) => {
+	filePath = `${directory}/workbook.xlsx`;
+	if (bytes) {
+		writeFileSync(filePath, bytes);
+		try {
+			model = UserModel.fromXlsx(filePath, "en", "UTC", "en");
+		} finally {
+			unlinkSync(filePath);
+		}
+	} else model = new UserModel(name, "en", "UTC", "en");
+	compact();
+	return { info, execute: run };
 });

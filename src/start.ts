@@ -7,12 +7,10 @@ import { fileTools } from "./files/tools.ts";
 import { agentPolicy, servers, tokens } from "./mcp/config.ts";
 import { startMcp } from "./mcp/start.ts";
 import { compactWhenDue } from "./memory/keeper.ts";
-import { presentationTools } from "./presentations/tools.ts";
-import { spreadsheetTools } from "./spreadsheets/tools.ts";
+import { officeTools } from "./office/tools.ts";
 import { refreshGeneralSubagents } from "./subagents/resume.ts";
 import { forwardToTelegram, startTelegram } from "./telegram/start.ts";
 import { telegramTools } from "./telegram/tools.ts";
-import { wordTools } from "./word/tools.ts";
 
 await forwardToTelegram();
 // Resumed runs need the same catalogue as new inputs, even without MCP servers.
@@ -21,13 +19,7 @@ const mcp = await startMcp({
 	servers,
 	policy: agentPolicy,
 	tokens,
-	localTools: [
-		...fileTools,
-		...spreadsheetTools,
-		...wordTools,
-		...presentationTools,
-		...telegramTools,
-	],
+	localTools: [...fileTools, ...officeTools, ...telegramTools],
 });
 await refreshGeneralSubagents({ harness, registry }, BACKGROUND_CONTEXT);
 // Resume only once forwarding is attached, so answers of runs interrupted by

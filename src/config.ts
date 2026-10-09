@@ -102,6 +102,12 @@ export type Config = {
 	credentialsFile?: string;
 };
 
+/** A conversation's settings for running on `model`. */
+export const modelSettings = (model: Model) => ({
+	model: { provider: model.provider, modelId: model.modelId },
+	thinkingLevel: model.thinkingLevel ?? null,
+});
+
 const CONFIG_FILE = "house-agents.config.ts";
 
 /** The default export of `house-agents.config.ts` in the working directory. */

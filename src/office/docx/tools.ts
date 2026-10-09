@@ -1,17 +1,20 @@
 import type { CodemodeTool } from "@earendil-works/pi-codemode";
 import { type TSchema, Type } from "typebox";
-import { localTool } from "../codemode/tool.ts";
-import { previewFile } from "../documents/preview.ts";
-import { officeFormats } from "../files/formats.ts";
-import { getFile, putFile } from "../files/store.ts";
+import { localTool } from "../../codemode/local-tool.ts";
+import {
+	exportBytes,
+	exportFile,
+	fileName,
+	previewCopy,
+	sourceFile,
+} from "../files.ts";
 import {
 	callWorkingCopy,
 	closeWorkingCopy,
 	createWorkingCopy,
-} from "../files/working-copy.ts";
+} from "../working-copy.ts";
 import { operations } from "./schemas.ts";
 
-const { mimeType } = officeFormats.docx;
 const id = Type.String({ minLength: 1 });
 const name = Type.String({
 	minLength: 1,
@@ -20,17 +23,13 @@ const name = Type.String({
 });
 const object = <T extends Record<string, TSchema>>(properties: T) =>
 	Type.Object(properties, { additionalProperties: false });
-const fileName = (value: string) =>
-	value.toLowerCase().endsWith(".docx") ? value : `${value}.docx`;
-const worker = new URL("./worker.ts", import.meta.url);
-const exported = async (documentId: string, signal: AbortSignal) => {
-	const bytes = await callWorkingCopy("docx", documentId, "export", {}, signal);
-	if (!(bytes instanceof Uint8Array))
-		throw new Error("DOCX worker returned invalid export bytes.");
-	const buffer = Buffer.from(bytes);
-	if (buffer.length < 4 || buffer.readUInt32LE(0) !== 0x04034b50)
-		throw new Error("DOCX export is not a ZIP archive.");
-	return buffer;
+const createDocument = async (
+	name: string,
+	bytes: Buffer | undefined,
+	signal: AbortSignal,
+) => {
+	const copy = await createWorkingCopy("docx", { name, bytes }, signal);
+	return { documentId: copy.id, info: copy.info };
 };
 const description: Record<keyof typeof operations, string> = {
 	info: "Inspect DOCX working-copy counts, version, compatibility warnings and tracked-change read-only status.",
@@ -52,41 +51,25 @@ const description: Record<keyof typeof operations, string> = {
 	export: "Export DOCX working-copy bytes.",
 };
 
-export const wordTools: readonly CodemodeTool[] = [
+export const docxTools: readonly CodemodeTool[] = [
 	localTool(
 		"docx_create",
 		"Create an isolated editable DOCX working copy with one blank body paragraph; returns {documentId,info}. RAM handles expire after close/restart/24 idle hours. Simple DOCX compatibility; export creates a derivative, never changes originals.",
 		object({ name: Type.Optional(name) }),
-		async (args, { signal }) => {
-			const copy = await createWorkingCopy(
-				{
-					format: "docx",
-					worker,
-					name: fileName(args.name ?? "document.docx"),
-				},
+		async (args, { signal }) =>
+			createDocument(
+				fileName("docx", args.name ?? "document.docx"),
+				undefined,
 				signal,
-			);
-			return { documentId: copy.id, info: copy.info };
-		},
+			),
 	),
 	localTool(
 		"docx_open",
 		"Open an immutable RAM file as an isolated DOCX working copy; returns {documentId,info}. Complex Word features have limited round-trip compatibility; inspect info warnings. Tracked-change documents are read-only and revisions are never auto-accepted.",
 		object({ fileId: id }),
 		async (args, { signal }) => {
-			const file = getFile(args.fileId);
-			if (
-				!file.fileName.toLowerCase().endsWith(".docx") &&
-				file.mimeType !== mimeType
-			)
-				throw new Error(
-					"Expected a .docx file, not legacy .doc or a template.",
-				);
-			const copy = await createWorkingCopy(
-				{ format: "docx", worker, name: file.fileName, bytes: file.data },
-				signal,
-			);
-			return { documentId: copy.id, info: copy.info };
+			const file = sourceFile("docx", args.fileId);
+			return createDocument(file.fileName, file.data, signal);
 		},
 	),
 	...Object.entries(operations)
@@ -106,46 +89,30 @@ export const wordTools: readonly CodemodeTool[] = [
 		"docx_clone",
 		"Clone a working copy into an independent handle through preserved DOCX bytes; returns {documentId,info}. Does not change source. Tracked-change clones remain read-only.",
 		object({ documentId: id, name: Type.Optional(name) }),
-		async (args, { signal }) => {
-			const copy = await createWorkingCopy(
-				{
-					format: "docx",
-					worker,
-					name: fileName(args.name ?? "copy.docx"),
-					bytes: await exported(args.documentId, signal),
-				},
+		async (args, { signal }) =>
+			createDocument(
+				fileName("docx", args.name ?? "copy.docx"),
+				await exportBytes("docx", args.documentId, signal),
 				signal,
-			);
-			return { documentId: copy.id, info: copy.info };
-		},
+			),
 	),
 	localTool(
 		"docx_export",
 		"Save a derivative DOCX to the RAM file store; returns {id,fileName,mimeType,size} for attachment bridges. Never modifies originals. Validate complex layout in Word. Unedited copies export source bytes exactly.",
 		object({ documentId: id, fileName: Type.Optional(name) }),
-		async (args, { signal }) => {
-			const data = await exported(args.documentId, signal);
-			signal.throwIfAborted();
-			return putFile({
-				data,
-				fileName: fileName(args.fileName ?? "document.docx"),
-				mimeType,
-			});
-		},
+		async (args, { signal }) =>
+			exportFile(
+				"docx",
+				args.documentId,
+				args.fileName ?? "document.docx",
+				signal,
+			),
 	),
 	localTool(
 		"docx_preview",
 		"Render an exported derivative using the shared document preview service. Returns provenance, pageCount, shownPages and JPEG images. Requires configured preview service; no edits or original-file changes.",
 		object({ documentId: id }),
-		async (args, { signal }) =>
-			previewFile(
-				{
-					data: await exported(args.documentId, signal),
-					fileName: "preview.docx",
-					mimeType,
-				},
-				signal,
-			),
+		async (args, { signal }) => previewCopy("docx", args.documentId, signal),
 	),
 	localTool(
 		"docx_close",

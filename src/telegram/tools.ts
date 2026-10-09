@@ -2,7 +2,7 @@ import type { CodemodeTool } from "@earendil-works/pi-codemode";
 import { InputFile } from "grammy";
 import { Type } from "typebox";
 
-import { localTool } from "../codemode/tool.ts";
+import { localTool } from "../codemode/local-tool.ts";
 import { getFile } from "../files/store.ts";
 import { bot, chatId } from "./bot.ts";
 

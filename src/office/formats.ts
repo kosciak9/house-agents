@@ -4,16 +4,19 @@ export const officeFormats = {
 		mimeType:
 			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 		tools: "spreadsheet_*",
+		worker: new URL("./xlsx/worker.ts", import.meta.url),
 	},
 	docx: {
 		mimeType:
 			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		tools: "docx_*",
+		worker: new URL("./docx/worker.ts", import.meta.url),
 	},
 	pptx: {
 		mimeType:
 			"application/vnd.openxmlformats-officedocument.presentationml.presentation",
 		tools: "pptx_*",
+		worker: new URL("./pptx/worker.ts", import.meta.url),
 	},
 } as const;
 

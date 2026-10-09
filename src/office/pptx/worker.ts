@@ -1,5 +1,7 @@
 import * as pptx from "@office-kit/pptx";
 import Value from "typebox/value";
+
+import { serveWorkingCopy } from "../worker.ts";
 import {
 	type Operation,
 	type OperationArgs,
@@ -91,7 +93,7 @@ const geometry = (args: { x: number; y: number; w: number; h: number }) => ({
 	h: pptx.inches(args.h),
 });
 
-export const createPresentationAdapter = async (bytes?: Uint8Array) => {
+const openPresentation = async (bytes?: Uint8Array) => {
 	if (bytes) checkContainer(bytes);
 	const presentation = bytes
 		? await pptx.loadPresentation(bytes)
@@ -578,3 +580,5 @@ export const createPresentationAdapter = async (bytes?: Uint8Array) => {
 	};
 	return { info, execute };
 };
+
+await serveWorkingCopy(({ bytes }) => openPresentation(bytes));

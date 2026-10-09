@@ -3,34 +3,45 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
-import type { OfficeFormat } from "./formats.ts";
+
+import { type OfficeFormat, officeFormats } from "./formats.ts";
+import type { Reply, Request, WorkerInput } from "./worker.ts";
+
+// An editable copy of an Office file lives in RAM, in a worker thread of its
+// own (`worker.ts`), reached by its handle. Calls to one copy run one at a
+// time; one cancelled or running too long closes it, since the worker cannot
+// stop halfway through an edit.
+
+const MAX_COPIES_PER_FORMAT = 8;
+const MAX_QUEUED_CALLS = 16;
+const TTL = 24 * 60 * 60_000;
+const OPERATION_TIMEOUT = 30 * 60_000;
+const UNAVAILABLE =
+	"Working copy unavailable after restart, 24 idle hours, close or cancellation. Reopen the original file; unsaved edits are RAM only.";
 
 type Pending = {
 	resolve: (value: unknown) => void;
 	reject: (error: Error) => void;
 };
+
 type Copy = {
 	id: string;
 	format: OfficeFormat;
 	worker: Worker;
 	directory: string;
+	/** Replies awaited, by request id. */
 	pending: Map<number, Pending>;
+	/** The last call, which the next one waits for. */
 	tail: Promise<unknown>;
-	next: number;
+	nextRequestId: number;
 	touched: number;
 	queued: number;
 	cleanup?: Promise<void>;
 };
+
 const copies = new Map<string, Copy>();
-const reservations: Record<OfficeFormat, number> = {
-	xlsx: 0,
-	docx: 0,
-	pptx: 0,
-};
-const TTL = 24 * 60 * 60_000;
-const OPERATION_TIMEOUT = 30 * 60_000;
-const unavailable =
-	"Working copy unavailable after restart, 24 idle hours, close or cancellation. Reopen the original file; unsaved edits are RAM only.";
+// Copies being opened count towards the limit before they have a handle.
+const opening: Record<OfficeFormat, number> = { xlsx: 0, docx: 0, pptx: 0 };
 
 const stop = (copy: Copy, reason: string): Promise<void> => {
 	if (copy.cleanup) return copy.cleanup;
@@ -50,27 +61,26 @@ const stop = (copy: Copy, reason: string): Promise<void> => {
 	})();
 	return copy.cleanup;
 };
+
 const stopDetached = (copy: Copy, reason: string) => {
 	void stop(copy, reason).catch((error) =>
 		console.error("Working-copy cleanup failed", error),
 	);
 };
 
-const request = (
+const isExpired = (copy: Copy): boolean =>
+	copy.queued === 0 &&
+	copy.pending.size === 0 &&
+	Date.now() - copy.touched > TTL;
+
+/** The reply to request `id`; the copy closes if `signal` aborts first. */
+const awaitReply = (
 	copy: Copy,
-	operation: string,
-	args: Record<string, unknown>,
+	id: number,
 	signal: AbortSignal,
-	initial = false,
 ): Promise<unknown> => {
-	if (copy.cleanup) return Promise.reject(new Error(unavailable));
-	if (signal.aborted) {
-		stopDetached(copy, "Working-copy operation cancelled; handle invalidated.");
-		return Promise.reject(new Error("Working-copy operation cancelled."));
-	}
 	copy.worker.ref();
 	return new Promise((resolve, reject) => {
-		const id = initial ? 0 : copy.next++;
 		const cancel = () =>
 			stopDetached(
 				copy,
@@ -80,6 +90,7 @@ const request = (
 		const finish = () => {
 			clearTimeout(timer);
 			signal.removeEventListener("abort", cancel);
+			// An idle copy does not keep the process alive.
 			if (copy.pending.size === 0) copy.worker.unref();
 		};
 		copy.pending.set(id, {
@@ -93,84 +104,89 @@ const request = (
 			},
 		});
 		signal.addEventListener("abort", cancel, { once: true });
-		try {
-			if (!initial) copy.worker.postMessage({ id, operation, args });
-		} catch (error) {
-			copy.pending.delete(id);
-			finish();
-			reject(error);
-		}
 	});
 };
 
+const request = (
+	copy: Copy,
+	operation: string,
+	args: Record<string, unknown>,
+	signal: AbortSignal,
+): Promise<unknown> => {
+	if (copy.cleanup) return Promise.reject(new Error(UNAVAILABLE));
+	if (signal.aborted) {
+		stopDetached(copy, "Working-copy operation cancelled; handle invalidated.");
+		return Promise.reject(new Error("Working-copy operation cancelled."));
+	}
+	const id = copy.nextRequestId++;
+	const reply = awaitReply(copy, id, signal);
+	try {
+		copy.worker.postMessage({ id, operation, args } satisfies Request);
+	} catch (error) {
+		const pending = copy.pending.get(id);
+		copy.pending.delete(id);
+		pending?.reject(error instanceof Error ? error : new Error(String(error)));
+	}
+	return reply;
+};
+
+/** Opens `bytes`, or a new empty file, as a working copy: its handle and info. */
 export const createWorkingCopy = async (
-	input: { format: OfficeFormat; worker: URL; name: string; bytes?: Buffer },
+	format: OfficeFormat,
+	{ name, bytes }: { name: string; bytes?: Buffer },
 	signal: AbortSignal,
 ): Promise<{ id: string; info: unknown }> => {
 	signal.throwIfAborted();
 	for (const copy of copies.values()) {
-		if (
-			copy.queued === 0 &&
-			copy.pending.size === 0 &&
-			Date.now() - copy.touched > TTL
-		)
+		if (isExpired(copy))
 			await stop(copy, "Working copy expired after 24 idle hours.");
 	}
 	const count = [...copies.values()].filter(
-		(copy) => copy.format === input.format,
+		(copy) => copy.format === format,
 	).length;
-	if (count + reservations[input.format] >= 8)
+	if (count + opening[format] >= MAX_COPIES_PER_FORMAT)
 		throw new Error(
-			`Maximum 8 RAM ${input.format} working copies. Close unused copies first.`,
+			`Maximum ${MAX_COPIES_PER_FORMAT} RAM ${format} working copies. Close unused copies first.`,
 		);
-	reservations[input.format]++;
+	opening[format]++;
 	let directory: string | undefined;
 	let copy: Copy | undefined;
 	try {
-		directory = await mkdtemp(path.join(tmpdir(), `house-${input.format}-`));
+		directory = await mkdtemp(path.join(tmpdir(), `house-${format}-`));
 		signal.throwIfAborted();
-		const worker = new Worker(input.worker, {
-			workerData: { directory, name: input.name, bytes: input.bytes },
+		const worker = new Worker(officeFormats[format].worker, {
+			workerData: { directory, name, bytes } satisfies WorkerInput,
 			// Native Node TS stripping works even when the entrypoint is launched by tsx.
 			execArgv: [],
 			resourceLimits: { maxOldGenerationSizeMb: 256 },
 		});
 		const opened: Copy = {
 			id: randomUUID(),
-			format: input.format,
+			format,
 			worker,
 			directory,
 			pending: new Map(),
 			tail: Promise.resolve(),
-			next: 1,
+			nextRequestId: 1,
 			touched: Date.now(),
 			queued: 0,
 		};
 		copy = opened;
-		// Keep the reservation through initialization, before publishing the handle.
-		worker.on(
-			"message",
-			(reply: {
-				id: number;
-				result?: unknown;
-				error?: string;
-				fatal?: boolean;
-			}) => {
-				const pending = opened.pending.get(reply.id);
-				opened.pending.delete(reply.id);
-				if (reply.fatal) {
-					pending?.reject(
-						new Error(reply.error ?? "Working-copy memory budget exceeded."),
-					);
-					stopDetached(
-						opened,
-						"Worker failed; handle invalidated. Reopen the source.",
-					);
-				} else if (reply.error !== undefined)
-					pending?.reject(new Error(reply.error));
-				else pending?.resolve(reply.result);
-			},
-		);
+		worker.on("message", (reply: Reply) => {
+			const pending = opened.pending.get(reply.id);
+			opened.pending.delete(reply.id);
+			if (reply.fatal) {
+				pending?.reject(
+					new Error(reply.error ?? "Working-copy memory budget exceeded."),
+				);
+				stopDetached(
+					opened,
+					"Worker failed; handle invalidated. Reopen the source.",
+				);
+			} else if (reply.error !== undefined)
+				pending?.reject(new Error(reply.error));
+			else pending?.resolve(reply.result);
+		});
 		worker.on("error", (error: Error) =>
 			stopDetached(
 				opened,
@@ -180,9 +196,10 @@ export const createWorkingCopy = async (
 		worker.on("exit", () =>
 			stopDetached(opened, "Worker exited. Handle invalidated; reopen source."),
 		);
-		const info = await request(opened, "", {}, signal, true);
+		// The worker answers id 0 once it has opened the file.
+		const info = await awaitReply(opened, 0, signal);
 		signal.throwIfAborted();
-		if (opened.cleanup) throw new Error(unavailable);
+		if (opened.cleanup) throw new Error(UNAVAILABLE);
 		opened.touched = Date.now();
 		copies.set(opened.id, opened);
 		return { id: opened.id, info };
@@ -191,7 +208,7 @@ export const createWorkingCopy = async (
 		else if (directory) await rm(directory, { recursive: true, force: true });
 		throw error;
 	} finally {
-		reservations[input.format]--;
+		opening[format]--;
 	}
 };
 
@@ -204,25 +221,20 @@ export const callWorkingCopy = async (
 ): Promise<unknown> => {
 	const copy = copies.get(id);
 	if (!copy || copy.format !== format || copy.cleanup)
-		throw new Error(unavailable);
-	if (
-		copy.queued === 0 &&
-		copy.pending.size === 0 &&
-		Date.now() - copy.touched > TTL
-	) {
+		throw new Error(UNAVAILABLE);
+	if (isExpired(copy)) {
 		await stop(copy, "Working copy expired.");
-		throw new Error(unavailable);
+		throw new Error(UNAVAILABLE);
 	}
 	if (signal.aborted) {
 		await stop(copy, "Working-copy operation cancelled; handle invalidated.");
 		signal.throwIfAborted();
 	}
-	if (copy.queued >= 16)
+	if (copy.queued >= MAX_QUEUED_CALLS)
 		throw new Error(
-			"Too many simultaneous calls to this working copy (maximum 16). Await existing calls first.",
+			`Too many simultaneous calls to this working copy (maximum ${MAX_QUEUED_CALLS}). Await existing calls first.`,
 		);
 	copy.queued++;
-	// Serialization is worker transport ownership, not another durable scheduler.
 	const cancel = () =>
 		stopDetached(copy, "Working-copy operation cancelled; handle invalidated.");
 	signal.addEventListener("abort", cancel, { once: true });

@@ -1,4 +1,5 @@
-// Real Office fixtures and structural inspection, independent of agent adapters.
+// Real Office fixtures and structural inspection, independent of the agent's
+// own Office workers.
 import * as pptx from "@office-kit/pptx";
 import { Document, Paragraph, Table } from "docxmlater";
 

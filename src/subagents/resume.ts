@@ -5,8 +5,8 @@ import type {
 	Registry,
 } from "@earendil-works/pi-durable";
 
-import { config } from "../config.ts";
-import { createGeneralRunExtension, isSubagentRun } from "./extension.ts";
+import { config, modelSettings } from "../config.ts";
+import { createGeneralRunExtension, rootExtensions } from "./extension.ts";
 
 const isConversationId = (value: unknown): value is ConversationId =>
 	typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -18,10 +18,7 @@ export const refreshGeneralSubagents = async (
 ): Promise<void> => {
 	const { tasks } = await harness.inspect(context);
 	const { model, prompt } = config();
-	const extensions = registry
-		.snapshot()
-		.installed()
-		.filter((extension) => !isSubagentRun(extension));
+	const extensions = rootExtensions(registry);
 	for (const { record } of tasks) {
 		if (record.kind !== "subagent.job") continue;
 		const input = record.input;
@@ -50,8 +47,7 @@ export const refreshGeneralSubagents = async (
 			registry.install(extension);
 			await conversation.configure(
 				{
-					model: { provider: model.provider, modelId: model.modelId },
-					thinkingLevel: model.thinkingLevel ?? null,
+					...modelSettings(model),
 					instructions: prompt,
 					tools: null,
 					extensions: [...extensions, extension],

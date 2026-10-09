@@ -2,8 +2,8 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Harness } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 
-import { config, stateFile } from "../config.ts";
-import { isSubagentRun } from "../subagents/extension.ts";
+import { config, modelSettings, stateFile } from "../config.ts";
+import { rootExtensions } from "../subagents/extension.ts";
 import { withFallback } from "./fallback.ts";
 import { models } from "./models.ts";
 import { registry } from "./registry.ts";
@@ -24,10 +24,7 @@ export const harness = await Harness.open(
 		settings: {
 			// Every installed extension but the subagents' own, read at every use.
 			get extensions() {
-				return registry
-					.snapshot()
-					.installed()
-					.filter((extension) => !isSubagentRun(extension));
+				return rootExtensions(registry);
 			},
 			// pi's own compaction would keep a summary in the context; the memory
 			// compacts instead: the session becomes a line of memory and a new
@@ -42,10 +39,6 @@ export const harness = await Harness.open(
 // it on every start so model and prompt changes also reach an existing session.
 export const root = await harness.root(BACKGROUND_CONTEXT);
 await root.configure(
-	{
-		model: { provider: model.provider, modelId: model.modelId },
-		thinkingLevel: model.thinkingLevel ?? null,
-		instructions: prompt,
-	},
+	{ ...modelSettings(model), instructions: prompt },
 	BACKGROUND_CONTEXT,
 );

@@ -1,20 +1,18 @@
 import type { CodemodeTool } from "@earendil-works/pi-codemode";
 import type { Static } from "typebox";
-import { localTool } from "../codemode/tool.ts";
-import { previewFile } from "../documents/preview.ts";
-import { officeFormats } from "../files/formats.ts";
-import { getFile, putFile } from "../files/store.ts";
+import { localTool } from "../../codemode/local-tool.ts";
+import { exportFile, previewCopy, sourceFile } from "../files.ts";
 import {
 	callWorkingCopy,
 	closeWorkingCopy,
 	createWorkingCopy,
-} from "../files/working-copy.ts";
+} from "../working-copy.ts";
 import {
 	columnOperations,
 	MAX_COLUMNS,
 	MAX_ROWS,
 	rowOperations,
-	spreadsheetSchemas as schemas,
+	schemas,
 } from "./schemas.ts";
 
 const createWorkbook = async (
@@ -22,15 +20,7 @@ const createWorkbook = async (
 	bytes: Buffer | undefined,
 	signal: AbortSignal,
 ) => {
-	const { id, info } = await createWorkingCopy(
-		{
-			format: "xlsx",
-			worker: new URL("./worker.ts", import.meta.url),
-			name,
-			bytes,
-		},
-		signal,
-	);
+	const { id, info } = await createWorkingCopy("xlsx", { name, bytes }, signal);
 	return { workbookId: id, info };
 };
 type WorkbookOperation = Exclude<keyof typeof schemas, "create" | "open">;
@@ -79,17 +69,7 @@ const validateWrite = ({ cells }: Static<typeof schemas.write>) => {
 			);
 	}
 };
-const exportBytes = async (
-	workbookId: string,
-	signal: AbortSignal,
-): Promise<Buffer> => {
-	const bytes = await callWorkingCopy("xlsx", workbookId, "export", {}, signal);
-	if (!(bytes instanceof Uint8Array))
-		throw new Error("Spreadsheet export did not return XLSX bytes.");
-	return Buffer.from(bytes);
-};
-
-export const spreadsheetTools: readonly CodemodeTool[] = [
+export const xlsxTools: readonly CodemodeTool[] = [
 	localTool(
 		"spreadsheet_create",
 		"Create an isolated editable RAM workbook; returns {workbookId, info}. Handles survive codemode scripts, not restart; close when finished. English formula/input locale, UTC. Simple data spreadsheets only: unsupported Excel features may be lost.",
@@ -101,9 +81,7 @@ export const spreadsheetTools: readonly CodemodeTool[] = [
 		"Open an XLSX RAM file as an isolated editable copy; returns {workbookId, info}, source bytes stay immutable. Unsupported Excel features may be lost on export. Locale/formulas English, UTC; text dates are not interpreted.",
 		schemas.open,
 		async (args, { signal }) => {
-			const file = getFile(args.fileId);
-			if (!file.fileName.toLowerCase().endsWith(".xlsx"))
-				throw new Error("Only XLSX files are supported.");
+			const file = sourceFile("xlsx", args.fileId);
 			return createWorkbook(file.fileName, file.data, signal);
 		},
 	),
@@ -244,30 +222,15 @@ export const spreadsheetTools: readonly CodemodeTool[] = [
 		"spreadsheet_export",
 		"Export current edits as real XLSX bytes in RAM; returns {id, fileName, mimeType, size}. Pass this id as fileId to file_read for base64 attachment bridge or Telegram delivery. Simple data spreadsheets only; source unchanged.",
 		schemas.export,
-		async (args, { signal }) => {
-			if (!args.fileName.toLowerCase().endsWith(".xlsx"))
-				throw new Error("Export filename must end in .xlsx.");
-			return putFile({
-				data: await exportBytes(args.workbookId, signal),
-				fileName: args.fileName,
-				mimeType: officeFormats.xlsx.mimeType,
-			});
-		},
+		async (args, { signal }) =>
+			exportFile("xlsx", args.workbookId, args.fileName, signal),
 	),
 	localTool(
 		"spreadsheet_preview",
 		"Render an exported copy via existing Gotenberg/LibreOffice → PDF. Returns JPEG image blocks (return the result or use image(block)); at most first 10 pages. LibreOffice may recalculate differently; preview is not proof of IronCalc values. Does not edit workbook cells or source.",
 		schemas.preview,
 		async (args, { signal }) => {
-			const data = await exportBytes(args.workbookId, signal);
-			const preview = await previewFile(
-				{
-					data,
-					fileName: "preview.xlsx",
-					mimeType: officeFormats.xlsx.mimeType,
-				},
-				signal,
-			);
+			const preview = await previewCopy("xlsx", args.workbookId, signal);
 			return {
 				...preview,
 				provenance:

@@ -1,4 +1,3 @@
-import { parentPort, workerData } from "node:worker_threads";
 import {
 	Document,
 	type DocumentLoadOptions,
@@ -8,11 +7,9 @@ import {
 } from "docxmlater";
 import type { Static, TSchema } from "typebox";
 import Value from "typebox/value";
+import { fatalError, serveWorkingCopy } from "../worker.ts";
 import { type Operation, operations, type ParagraphInput } from "./schemas.ts";
 
-const port = parentPort;
-if (!port) throw new Error("DOCX worker requires a parent port.");
-const data: { name: string; bytes?: Uint8Array } = workerData;
 const MAX_BYTES = 64 * 1024 * 1024;
 const notices = [
 	"Simple DOCX compatibility only: complex layout, embedded objects, fields, comments, drawings, headers/footers and custom XML are not editable here; verify the exported derivative in Word. Original files are never modified.",
@@ -31,6 +28,7 @@ const options: DocumentLoadOptions = {
 		maxCompressionRatio: 200,
 	},
 };
+let name: string;
 let document: Document;
 let savedBytes: Buffer;
 let revisions = false;
@@ -112,7 +110,7 @@ const apply = (paragraph: Paragraph, input: ParagraphInput) => {
 	}
 };
 const info = () => ({
-	name: data.name,
+	name,
 	version,
 	paragraphCount: paragraphs().length,
 	tableCount: tables().length,
@@ -339,9 +337,48 @@ const readOnlyOperations = new Set<Operation>([
 	"read_table",
 	"export",
 ]);
-const main = async () => {
-	if (data.bytes) {
-		savedBytes = Buffer.from(data.bytes);
+const execute = async (
+	operation: string,
+	args: Record<string, unknown>,
+): Promise<unknown> => {
+	if (!(operation in operations)) throw new Error("Unknown DOCX operation.");
+	const write = !readOnlyOperations.has(operation as Operation);
+	if (write && revisions)
+		throw new Error(
+			"Documents with tracked changes are read-only; revisions are never auto-accepted.",
+		);
+	try {
+		const result = await dispatch(operation as Operation, args);
+		if (write) {
+			const bytes = await document.toBuffer();
+			if (bytes.length > MAX_BYTES)
+				throw new Error(
+					"Edited DOCX exceeds the 64 MiB working-copy limit; operation rolled back.",
+				);
+			savedBytes = bytes;
+			version++;
+		}
+		return result;
+	} catch (error) {
+		// A failed edit leaves the last saved document in place.
+		if (write) {
+			try {
+				document = await Document.loadFromBuffer(savedBytes, options);
+			} catch {
+				throw fatalError(
+					error instanceof Error ? error.message : String(error),
+				);
+			}
+		}
+		throw error;
+	}
+};
+
+await serveWorkingCopy(async (input) => {
+	name = input.name;
+	const { bytes } = input;
+	if (bytes) {
+		savedBytes = Buffer.from(bytes);
 		if (
 			savedBytes.length < 4 ||
 			savedBytes.length > MAX_BYTES ||
@@ -349,9 +386,9 @@ const main = async () => {
 		)
 			throw new Error("Expected a DOCX ZIP file no larger than 64 MiB.");
 		document = await Document.loadFromBuffer(savedBytes, options);
-		for (const name of await document.listParts()) {
-			if (!name.endsWith(".xml")) continue;
-			const part = await document.getPart(name);
+		for (const partName of await document.listParts()) {
+			if (!partName.endsWith(".xml")) continue;
+			const part = await document.getPart(partName);
 			if (
 				part &&
 				/<(?:\w+:)?(?:ins|del|moveFrom|moveTo|moveFromRangeStart|moveToRangeStart|\w+PrChange|tblGridChange|numberingChange|cellIns|cellDel|cellMerge)\b/.test(
@@ -365,53 +402,5 @@ const main = async () => {
 		document.addParagraph(Paragraph.create(""));
 		savedBytes = await document.toBuffer();
 	}
-	port.postMessage({ id: 0, result: info() });
-	port.on(
-		"message",
-		async (message: { id: number; operation: Operation; args: unknown }) => {
-			let mutated = false;
-			try {
-				if (!(message.operation in operations))
-					throw new Error("Unknown DOCX operation.");
-				const write = !readOnlyOperations.has(message.operation);
-				if (write && revisions)
-					throw new Error(
-						"Documents with tracked changes are read-only; revisions are never auto-accepted.",
-					);
-				mutated = write;
-				const result = await dispatch(message.operation, message.args);
-				if (write) {
-					const bytes = await document.toBuffer();
-					if (bytes.length > MAX_BYTES)
-						throw new Error(
-							"Edited DOCX exceeds the 64 MiB working-copy limit; operation rolled back.",
-						);
-					savedBytes = bytes;
-					version++;
-				}
-				port.postMessage({ id: message.id, result });
-			} catch (error) {
-				let fatal = false;
-				if (mutated) {
-					try {
-						document = await Document.loadFromBuffer(savedBytes, options);
-					} catch {
-						fatal = true;
-					}
-				}
-				port.postMessage({
-					id: message.id,
-					error: error instanceof Error ? error.message : String(error),
-					fatal,
-				});
-			}
-		},
-	);
-};
-await main().catch((error: unknown) =>
-	port.postMessage({
-		id: 0,
-		error: error instanceof Error ? error.message : String(error),
-		fatal: true,
-	}),
-);
+	return { info, execute };
+});

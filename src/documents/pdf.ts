@@ -1,7 +1,8 @@
+import type { ImageContent } from "@earendil-works/pi-ai";
 import { createCanvas } from "@napi-rs/canvas";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
-export const MAX_PAGES = 10;
+const MAX_PAGES = 10;
 // The longer side of a page, enough to read small print.
 const PAGE_PIXELS = 1600;
 
@@ -13,7 +14,7 @@ const standardFontDataUrl = new URL(
 
 export type Pages = {
 	/** JPEG images of the first `MAX_PAGES` pages. */
-	images: Buffer[];
+	images: ImageContent[];
 	pageCount: number;
 };
 
@@ -44,7 +45,7 @@ export const renderPages = async (
 		const document = await loaded;
 		signal?.removeEventListener("abort", cancelLoading);
 		signal?.throwIfAborted();
-		const images: Buffer[] = [];
+		const images: ImageContent[] = [];
 		const shown = Math.min(document.numPages, MAX_PAGES);
 		for (let number = 1; number <= shown; number++) {
 			signal?.throwIfAborted();
@@ -67,7 +68,11 @@ export const renderPages = async (
 				if (signal?.aborted) cancel();
 				await rendering.promise;
 				signal?.throwIfAborted();
-				images.push(await canvas.encode("jpeg", 80));
+				images.push({
+					type: "image",
+					data: (await canvas.encode("jpeg", 80)).toString("base64"),
+					mimeType: "image/jpeg",
+				});
 				signal?.throwIfAborted();
 			} finally {
 				signal?.removeEventListener("abort", cancel);

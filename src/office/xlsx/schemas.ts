@@ -78,7 +78,7 @@ const cell = Type.Union([
 	),
 ]);
 
-export const spreadsheetSchemas = {
+export const schemas = {
 	create: Type.Object({ name: string() }, strict),
 	open: Type.Object({ fileId: string() }, strict),
 	info: Type.Object(handle, strict),

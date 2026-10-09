@@ -5,12 +5,21 @@ import type { CommandContext, Context, Filter } from "grammy";
 import { root } from "../agent/harness.ts";
 import { memory } from "../agent/memory.ts";
 import { readDocument } from "../documents/read.ts";
-import { officeFormat, officeFormats } from "../files/formats.ts";
-import { putFile } from "../files/store.ts";
+import { type FileMetadata, putFile } from "../files/store.ts";
+import { officeFormat, officeFormats } from "../office/formats.ts";
 import { transcribe } from "../voice/whisper.ts";
 import { bot, chatId } from "./bot.ts";
 import { downloadFile, MAX_DOWNLOAD_BYTES } from "./files.ts";
 import { setReplyTarget } from "./reply-target.ts";
+
+// How the model refers to a file the chat sent in file and Office tools.
+const fileReference = (file: FileMetadata): string =>
+	JSON.stringify({
+		fileId: file.id,
+		fileName: file.fileName,
+		mimeType: file.mimeType,
+		size: file.size,
+	});
 
 const submitInput = async (
 	messageId: number,
@@ -61,7 +70,7 @@ export const handlePhotoMessage = async (
 			fileName: `photo-${message_id}.jpg`,
 			mimeType: "image/jpeg",
 		});
-		attachment = `Telegram photo stored as JPEG for file/image tools: ${JSON.stringify({ fileId: file.id, fileName: file.fileName, mimeType: file.mimeType, size: file.size })}. RAM reference expires on restart or after 24 idle hours.`;
+		attachment = `Telegram photo stored as JPEG for file/image tools: ${fileReference(file)}. RAM reference expires on restart or after 24 idle hours.`;
 	} catch (error) {
 		console.error("Retaining photo bytes failed:", error);
 		attachment =
@@ -98,7 +107,7 @@ export const handleDocumentMessage = async (
 			const format = officeFormat(file);
 			content.push({
 				type: "text",
-				text: `Original attachment stored in memory: ${JSON.stringify({ fileId: file.id, fileName: file.fileName, mimeType: file.mimeType, size: file.size })}. This fileId expires on restart or after 24 idle hours. ${format ? `Use ${officeFormats[format].tools} to open an editable copy and inspect the original ${format.toUpperCase()} content. Format tools also preview and export derivatives; no automatic PDF conversion was made.` : "Use file tools to access the original bytes; any preview below is separate."}`,
+				text: `Original attachment stored in memory: ${fileReference(file)}. This fileId expires on restart or after 24 idle hours. ${format ? `Use ${officeFormats[format].tools} to open an editable copy and inspect the original ${format.toUpperCase()} content. Format tools also preview and export derivatives; no automatic PDF conversion was made.` : "Use file tools to access the original bytes; any preview below is separate."}`,
 			});
 			if (!format)
 				content.push(...(await readDocument({ data, fileName, mimeType })));

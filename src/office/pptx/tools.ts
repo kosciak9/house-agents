@@ -1,43 +1,35 @@
 import type { CodemodeTool } from "@earendil-works/pi-codemode";
 import { Type } from "typebox";
-import { localTool } from "../codemode/tool.ts";
-import { previewFile } from "../documents/preview.ts";
-import { officeFormats } from "../files/formats.ts";
-import { getFile, putFile } from "../files/store.ts";
+import { localTool } from "../../codemode/local-tool.ts";
+import { getFile } from "../../files/store.ts";
+import {
+	exportBytes,
+	exportFile,
+	fileName,
+	previewCopy,
+	sourceFile,
+} from "../files.ts";
 import {
 	callWorkingCopy,
 	closeWorkingCopy,
 	createWorkingCopy,
-} from "../files/working-copy.ts";
+} from "../working-copy.ts";
 import { id, name, type Operation, operations } from "./schemas.ts";
 
-const MIME = officeFormats.pptx.mimeType;
 const handle = { presentationId: id };
 const object = <T extends Parameters<typeof Type.Object>[0]>(properties: T) =>
 	Type.Object(properties, { additionalProperties: false });
-const fileName = (value: string) => {
-	if (
-		/[\\/]/.test(value) ||
-		[...value].some((character) => character.charCodeAt(0) < 32)
-	)
-		throw new Error("Use a file name, not a path.");
-	return /\.pptx$/i.test(value) ? value : `${value}.pptx`;
-};
 const create = async (
 	name: string,
 	bytes: Buffer | undefined,
 	signal: AbortSignal,
 ) => {
-	const result = await createWorkingCopy(
-		{
-			format: "pptx",
-			worker: new URL("./worker.ts", import.meta.url),
-			name: fileName(name),
-			bytes,
-		},
+	const copy = await createWorkingCopy(
+		"pptx",
+		{ name: fileName("pptx", name), bytes },
 		signal,
 	);
-	return { presentationId: result.id, info: result.info };
+	return { presentationId: copy.id, info: copy.info };
 };
 const call = (
 	id: string,
@@ -45,13 +37,6 @@ const call = (
 	args: Record<string, unknown>,
 	signal: AbortSignal,
 ) => callWorkingCopy("pptx", id, operation, args, signal);
-const exportBytes = async (id: string, signal: AbortSignal) => {
-	const bytes = await call(id, "export", {}, signal);
-	if (!(bytes instanceof Uint8Array))
-		throw new Error("PPTX worker returned invalid export bytes.");
-	signal.throwIfAborted();
-	return Buffer.from(bytes);
-};
 const operationTool = (
 	operation: Exclude<Operation, "configure" | "export" | "add_image">,
 	description: string,
@@ -64,8 +49,7 @@ const operationTool = (
 			call(presentationId, operation, args, context.signal),
 	);
 
-/** PPTX native creation and editing share one package-preserving worker adapter. */
-export const presentationTools: readonly CodemodeTool[] = [
+export const pptxTools: readonly CodemodeTool[] = [
 	localTool(
 		"pptx_create",
 		"Create an empty 16:9 PowerPoint RAM working copy (13.333 × 7.5 inches). Optional width AND height in inches. Use pptx_add_slide and named shapes to compose layouts; export to a new fileId before closing/restart. Max 8 copies, 24 idle hours.",
@@ -98,9 +82,7 @@ export const presentationTools: readonly CodemodeTool[] = [
 		"Open an immutable PPTX fileId as a separate editable RAM working copy. Existing package parts (including charts, notes and unsupported objects) are retained. Structural reads are partial, not visual proof. No legacy PPT/password/ZIP64 support; max 64 MiB compressed, 256 MiB expanded.",
 		object({ fileId: id }),
 		async ({ fileId }, context) => {
-			const file = getFile(fileId);
-			if (!/\.pptx$/i.test(file.fileName) && file.mimeType !== MIME)
-				throw new Error("Expected a .pptx presentation file.");
+			const file = sourceFile("pptx", fileId);
 			return create(file.fileName, file.data, context.signal);
 		},
 	),
@@ -181,7 +163,7 @@ export const presentationTools: readonly CodemodeTool[] = [
 		async ({ presentationId, name }, context) =>
 			create(
 				name ?? "presentation-copy.pptx",
-				await exportBytes(presentationId, context.signal),
+				await exportBytes("pptx", presentationId, context.signal),
 				context.signal,
 			),
 	),
@@ -189,28 +171,20 @@ export const presentationTools: readonly CodemodeTool[] = [
 		"pptx_export",
 		"Serialize current working copy to actual PPTX bytes and store a NEW immutable fileId with fileName/MIME/size metadata. Source file and working copy are unchanged. Pass that fileId to attachment tools; max 64 MiB.",
 		object({ ...handle, fileName: Type.Optional(name) }),
-		async ({ presentationId, fileName: requestedName }, context) => {
-			const name = fileName(requestedName ?? "presentation.pptx");
-			return putFile({
-				data: await exportBytes(presentationId, context.signal),
-				fileName: name,
-				mimeType: MIME,
-			});
-		},
+		async ({ presentationId, fileName }, context) =>
+			exportFile(
+				"pptx",
+				presentationId,
+				fileName ?? "presentation.pptx",
+				context.signal,
+			),
 	),
 	localTool(
 		"pptx_preview",
 		"Render an exported snapshot through configured Gotenberg and return rendered-image provenance/page coverage. Neither source nor working copy changes. Fails explicitly if rendering is unavailable; structural inspection is not visual verification.",
 		object(handle),
 		async ({ presentationId }, context) =>
-			previewFile(
-				{
-					data: await exportBytes(presentationId, context.signal),
-					fileName: "presentation.pptx",
-					mimeType: MIME,
-				},
-				context.signal,
-			),
+			previewCopy("pptx", presentationId, context.signal),
 	),
 	localTool(
 		"pptx_close",

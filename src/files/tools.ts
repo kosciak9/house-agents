@@ -1,6 +1,6 @@
 import type { CodemodeTool } from "@earendil-works/pi-codemode";
 import { Type } from "typebox";
-import { localTool } from "../codemode/tool.ts";
+import { localTool } from "../codemode/local-tool.ts";
 import { listFiles, readFileChunk, releaseFile } from "./store.ts";
 
 const fileId = Type.String({ minLength: 1 });

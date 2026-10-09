@@ -15,8 +15,8 @@ import {
 } from "@earendil-works/pi-durable";
 
 import { PromptFirstExtension } from "../agent/prompt-first.ts";
-import { createCodemodeTool } from "../codemode/extension.ts";
-import type { Model } from "../config.ts";
+import { createCodemodeTool } from "../codemode/tool.ts";
+import { config, modelSettings } from "../config.ts";
 import { connectLightpanda } from "../lightpanda/connect.ts";
 import { type Connection, connectServers } from "../mcp/client.ts";
 import type { ServerConfig } from "../mcp/config.ts";
@@ -59,9 +59,12 @@ const GENERAL_DESCRIPTION =
 	"restart an old handle may be unavailable; report that failure, do not invent " +
 	"a replacement.";
 
-/** Whether `extension` belongs to one subagent's conversation only. */
-export const isSubagentRun = (extension: Extension): boolean =>
-	extension.name.startsWith(RUN_EXTENSION);
+/** Every installed extension but those of one subagent's conversation only. */
+export const rootExtensions = (registry: Registry): Extension[] =>
+	registry
+		.snapshot()
+		.installed()
+		.filter((extension) => !extension.name.startsWith(RUN_EXTENSION));
 
 /** Installed again before resuming an interrupted general conversation. */
 export const createGeneralRunExtension = (conversation: ConversationId) =>
@@ -137,28 +140,19 @@ export const createSubagentExtension = ({
 	subagents,
 	servers,
 	tokens,
-	general,
 }: {
 	/** Where each subagent's own MCP tools are installed while it runs. */
 	registry: Registry;
 	subagents: ReadonlyMap<string, SubagentConfig>;
 	servers: ReadonlyMap<string, ServerConfig>;
 	tokens: TokenStore;
-	/** The root deployment, without importing the harness back into its registry. */
-	general: () => { model: Model; prompt: string };
 }) => {
 	const agentConfig = (name: string) => {
-		if (name === "general") return general();
+		if (name === "general") return config();
 		const specialist = subagents.get(name);
 		if (!specialist) throw new Error(`No subagent "${name}"`);
 		return specialist;
 	};
-	const rootExtensions = () =>
-		registry
-			.snapshot()
-			.installed()
-			.filter((extension) => !isSubagentRun(extension));
-
 	const JobTask = defineTask<JobInput, JobState, string | null>({
 		name: "subagent.job",
 		version: 1,
@@ -168,7 +162,6 @@ export const createSubagentExtension = ({
 		phases: {
 			start: async (task, runtime, context) => {
 				const subagent = agentConfig(task.input.agent);
-				const { model } = subagent;
 
 				await runtime.commit(async (tx) => {
 					const conversations: ConversationId[] = [];
@@ -177,13 +170,12 @@ export const createSubagentExtension = ({
 							ownership: { kind: "task", taskId: task.id },
 						});
 						await configure(tx, id, {
-							model: { provider: model.provider, modelId: model.modelId },
-							thinkingLevel: model.thinkingLevel ?? null,
+							...modelSettings(subagent.model),
 							instructions: subagent.prompt,
 							tools: null,
 							extensions:
 								task.input.agent === "general"
-									? rootExtensions()
+									? rootExtensions(registry)
 									: [PromptFirstExtension],
 						});
 						conversations.push(id);
@@ -229,15 +221,13 @@ export const createSubagentExtension = ({
 								...(specialist
 									? {}
 									: {
-											model: {
-												provider: subagent.model.provider,
-												modelId: subagent.model.modelId,
-											},
-											thinkingLevel: subagent.model.thinkingLevel ?? null,
+											...modelSettings(subagent.model),
 											instructions: subagent.prompt,
 										}),
 								extensions: [
-									...(specialist ? [PromptFirstExtension] : rootExtensions()),
+									...(specialist
+										? [PromptFirstExtension]
+										: rootExtensions(registry)),
 									extension,
 								],
 							});

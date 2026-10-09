@@ -1,8 +1,8 @@
-import { type Static, Type } from "typebox";
+import { type Static, type TSchema, Type } from "typebox";
 
 const index = Type.Integer({ minimum: 1 });
 const text = Type.String({ maxLength: 1_000_000 });
-export const runFormat = Type.Object(
+const runFormat = Type.Object(
 	{
 		bold: Type.Optional(Type.Boolean()),
 		italic: Type.Optional(Type.Boolean()),
@@ -14,7 +14,7 @@ export const runFormat = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-export const paragraphFormat = Type.Object(
+const paragraphFormat = Type.Object(
 	{
 		heading: Type.Optional(Type.Integer({ minimum: 0, maximum: 9 })),
 		alignment: Type.Optional(
@@ -28,7 +28,7 @@ export const paragraphFormat = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-export const paragraphInput = {
+const paragraphInput = {
 	text: Type.Optional(text),
 	runs: Type.Optional(
 		Type.Array(
@@ -41,11 +41,10 @@ export const paragraphInput = {
 	),
 	format: Type.Optional(paragraphFormat),
 };
-export type ParagraphInput = Static<ReturnType<typeof paragraphSchema>>;
-const paragraphSchema = () => Type.Object(paragraphInput);
-const object = <T extends Record<string, import("typebox").TSchema>>(
-	properties: T,
-) => Type.Object(properties, { additionalProperties: false });
+const paragraph = Type.Object(paragraphInput);
+export type ParagraphInput = Static<typeof paragraph>;
+const object = <T extends Record<string, TSchema>>(properties: T) =>
+	Type.Object(properties, { additionalProperties: false });
 export const operations = {
 	info: object({}),
 	read: object({

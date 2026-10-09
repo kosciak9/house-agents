@@ -40,13 +40,7 @@ const pageImages = async (pdf: Buffer, label: string): Promise<Content> => {
 	const { images, pageCount } = await renderPages(pdf);
 	return [
 		text(`${label}, pages 1–${images.length} of ${pageCount}, as images:`),
-		...images.map(
-			(image): ImageContent => ({
-				type: "image",
-				data: image.toString("base64"),
-				mimeType: "image/jpeg",
-			}),
-		),
+		...images,
 	];
 };
 
