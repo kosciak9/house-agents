@@ -14,6 +14,8 @@
 // Runs its own bot processes on one session, next to three test MCP servers
 // (`e2e/mcp/server.ts`). The OAuth server is its own authorization server and
 // approves at once, so fetching the link stands in for the user's consent.
+// A real model looks at the tool's image; after the restart the scripted
+// model (`e2e/scripted-model.ts`) makes the tool calls.
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,9 +24,17 @@ import { after, before, test } from "node:test";
 
 import type { Client } from "tdl";
 
+import type { Model } from "../src/index.ts";
 import { DEFAULT_PROMPT, type RunningBot, startBot } from "./bot.ts";
 import { COLORS } from "./image.ts";
 import { type RunningMcpServer, startHttpMcpServer } from "./mcp/http.ts";
+import {
+	call,
+	codemode,
+	SCRIPTED_MODEL,
+	say,
+	script,
+} from "./scripted-model.ts";
 import {
 	botUsername,
 	connectTestUser,
@@ -53,9 +63,10 @@ let runningBot: RunningBot | undefined;
 let client: Client;
 let bot: string;
 
-const startMcpBot = () =>
+const startMcpBot = (model?: Model) =>
 	startBot({
 		stateDir: directory,
+		model,
 		mcpServers: {
 			remote: {
 				url: httpServer.url,
@@ -80,12 +91,16 @@ const startMcpBot = () =>
 		},
 	});
 
-const askForWord = (server: string) =>
+// The answer of a server's get_word, as the agent itself calls it.
+const getWord = (server: string) =>
 	sendAndWaitForReply(
 		client,
 		bot,
-		`Użyj narzędzia get_word serwera ${server} i odpowiedz samym słowem.`,
-		{ timeoutMs: 2 * MINUTE },
+		script(
+			codemode(`return await tools.${server}__get_word({});`),
+			say("{{result}}"),
+		),
+		{ timeoutMs: MINUTE },
 	);
 
 before(async () => {
@@ -187,14 +202,6 @@ test("mcp: allowed tools work with an API key and OAuth, others are hidden", {
 		);
 	});
 
-	await t.test("calls a tool over OAuth", async () => {
-		assert.match(await askForWord("secure"), new RegExp(oauthWord));
-	});
-
-	await t.test("calls a tool over HTTP with the API key", async () => {
-		assert.match(await askForWord("remote"), new RegExp(httpWord));
-	});
-
 	await t.test("sees the image a tool returns", async () => {
 		const reply = await sendAndWaitForReply(
 			client,
@@ -206,16 +213,36 @@ test("mcp: allowed tools work with an API key and OAuth, others are hidden", {
 		assert.match(reply, color.answer);
 	});
 
+	await t.test(
+		"OAuth tools work after a restart, without a new login",
+		async () => {
+			await runningBot?.stop();
+			runningBot = await startMcpBot(SCRIPTED_MODEL);
+			assert.match(await getWord("secure"), new RegExp(oauthWord));
+		},
+	);
+
+	await t.test("calls a tool over HTTP with the API key", async () => {
+		assert.match(await getWord("remote"), new RegExp(httpWord));
+	});
+
 	await t.test("subagents run at once, with tools of their own", async () => {
+		const task = script(
+			codemode("return await tools.words__get_word({});"),
+			say("{{result}}"),
+		);
 		await sendAndWaitForReply(
 			client,
 			bot,
-			"Uruchom naraz dwa subagenty zwiadowca, każdy z zadaniem: pobierz " +
-				"słowo narzędziem get_word i odpowiedz samym słowem. " +
-				"Gdy odpowiedzą, podaj mi to słowo.",
+			script(
+				call("subagent", { agent: "zwiadowca", tasks: [task, task] }),
+				say("started"),
+				// Once both have reported back.
+				say(`{{match:ZWIAD-${runId}}}`),
+			),
 			{
 				matches: (text) => text.includes(scoutWord),
-				timeoutMs: 3 * MINUTE,
+				timeoutMs: MINUTE,
 			},
 		);
 		// The agent itself may not use `words`: both calls are the subagents'.
@@ -223,19 +250,24 @@ test("mcp: allowed tools work with an API key and OAuth, others are hidden", {
 	});
 
 	await t.test("cannot call a tool the server does not allow", async () => {
-		await sendAndWaitForReply(
+		const reply = await sendAndWaitForReply(
 			client,
 			bot,
-			'Wywołaj narzędzie record_visit z imieniem "test" na wszystkich serwerach. ' +
-				"Odpowiedz jednym zdaniem.",
-			{ timeoutMs: 2 * MINUTE },
+			script(
+				codemode(`const failures = [];
+for (const server of ["remote", "secure", "words"]) {
+	try {
+		await tools[server + "__record_visit"]({ name: "test" });
+	} catch (error) {
+		failures.push(server + ": " + error.message);
+	}
+}
+return failures.join("; ");`),
+				say("{{result}}"),
+			),
+			{ timeoutMs: MINUTE },
 		);
+		assert.match(reply, /remote: /, reply);
 		assert.equal(existsSync(visitFile), false);
-	});
-
-	await t.test("OAuth tools still work after a restart", async () => {
-		await runningBot?.stop();
-		runningBot = await startMcpBot();
-		assert.match(await askForWord("secure"), new RegExp(oauthWord));
 	});
 });
