@@ -32,7 +32,7 @@ export const Schedules = defineDoc<{ schedules: Record<string, Schedule> }>({
 export const TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 const parseCron = (cron: string): Cron =>
-	new Cron(cron, { mode: "5-part", paused: true });
+	new Cron(cron, { mode: "5-or-6-parts", paused: true });
 
 export const isValidCron = (cron: string): boolean => {
 	try {

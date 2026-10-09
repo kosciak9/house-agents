@@ -1,11 +1,11 @@
 // Contract: the agent can create a recurring cron schedule that wakes it up,
-// list it, and delete it so it stops firing; a recurring schedule would fire
-// again within the minute after deletion. A wake-up that has nothing to tell
-// the user fires without a message in the chat. The scripted model
-// (`e2e/scripted-model.ts`) makes the tool calls, so this tests the scheduler,
-// not a model's judgement.
+// list it, and delete it so it stops firing; the schedule fires every 10
+// seconds, so it would fire again within the silence after deletion. A
+// wake-up that has nothing to tell the user fires without a message in the
+// chat. The scripted model (`e2e/scripted-model.ts`) makes the tool calls, so
+// this tests the scheduler, not a model's judgement.
 // Runs its own bot process on an empty session, so no schedule outlives the
-// test. Takes about 3 minutes: cron fires on full minutes.
+// test. Takes under a minute.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
@@ -22,6 +22,7 @@ import {
 } from "./telegram/client.ts";
 
 const MINUTE = 60_000;
+const SECOND = 1000;
 
 // Unique per run, so ticks of a schedule left over from an earlier run never
 // count as ticks of this one.
@@ -52,7 +53,7 @@ after(async () => {
 });
 
 test("cron: create → fires → listed → deleted → stops; silent wake-up", {
-	timeout: 7 * MINUTE,
+	timeout: 3 * MINUTE,
 }, async (t) => {
 	await t.test("creates a recurring cron", async () => {
 		await sendAndWaitForReply(
@@ -60,7 +61,7 @@ test("cron: create → fires → listed → deleted → stops; silent wake-up", 
 			bot,
 			script(
 				call("cron_create", {
-					cron: "* * * * *",
+					cron: "*/10 * * * * *",
 					prompt: script(say(token)),
 					recurring: true,
 					label,
@@ -71,10 +72,10 @@ test("cron: create → fires → listed → deleted → stops; silent wake-up", 
 		);
 	});
 
-	await t.test("fires on the next minute", async () => {
+	await t.test("fires within 10 seconds", async () => {
 		await waitForBotMessage(client, bot, {
 			matches: isTick,
-			timeoutMs: 2 * MINUTE,
+			timeoutMs: 30 * SECOND,
 		});
 	});
 
@@ -96,7 +97,7 @@ test("cron: create → fires → listed → deleted → stops; silent wake-up", 
 				// The id the listing gave the schedule.
 				call("cron_delete", { id: `{{match:\\d+(?=\\] ${label}:)}}` }),
 				call("schedule_wakeup", {
-					delaySeconds: 30,
+					delaySeconds: 5,
 					prompt: script(
 						call("schedule_wakeup", {
 							delaySeconds: 3600,
@@ -115,10 +116,10 @@ test("cron: create → fires → listed → deleted → stops; silent wake-up", 
 	await t.test("stays silent: no tick, no wake-up message", async () => {
 		// A tick already queued before the deletion may still land right after
 		// it; only messages after that grace period break the contract.
-		await new Promise((resolve) => setTimeout(resolve, 10_000));
+		await new Promise((resolve) => setTimeout(resolve, 5 * SECOND));
 		await expectNoBotMessage(client, bot, {
 			matches: () => true,
-			durationMs: 75_000,
+			durationMs: 20 * SECOND,
 		});
 	});
 

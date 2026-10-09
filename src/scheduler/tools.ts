@@ -84,13 +84,14 @@ export const cronCreateTool = defineTool({
 
 	description:
 		"Schedule a prompt that wakes you up on a 5-field cron expression " +
-		"(minute hour day-of-month month day-of-week), recurring or once at the next match. " +
+		"(minute hour day-of-month month day-of-week), or 6 fields with a leading second, " +
+		"recurring or once at the next match. " +
 		`Times are in ${TIME_ZONE}. Examples: "*/5 * * * *" every 5 minutes, ` +
 		'"0 9 * * 1-5" weekdays at 9:00, "0 9 24 12 *" on 24 December at 9:00.',
 
 	parameters: Type.Object({
 		cron: Type.String({
-			description: `5-field cron expression in ${TIME_ZONE} time.`,
+			description: `5-field cron expression (or 6 with a leading second) in ${TIME_ZONE} time.`,
 		}),
 		prompt: Type.String({
 			description: "Prompt to submit when the schedule fires.",
@@ -109,7 +110,7 @@ export const cronCreateTool = defineTool({
 	execute: async (args, api, context) => {
 		if (!isValidCron(args.cron)) {
 			return text([
-				`Invalid cron expression "${args.cron}". Use 5 fields: minute hour day-of-month month day-of-week.`,
+				`Invalid cron expression "${args.cron}". Use 5 fields: minute hour day-of-month month day-of-week, or 6 with a leading second.`,
 			]);
 		}
 
