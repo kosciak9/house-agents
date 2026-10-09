@@ -71,7 +71,8 @@ const createMcpServer = (): Server => {
 		}
 		if (request.params.name === "get_picture") {
 			const rgb = requireEnv("PICTURE").split(",").map(Number);
-			const data = solidPng(rgb, 256).toString("base64");
+			// 512: gpt-6-luna calls a 256-pixel red square in a tool result black.
+			const data = solidPng(rgb, 512).toString("base64");
 			return { content: [{ type: "image", data, mimeType: "image/png" }] };
 		}
 		if (request.params.name === "record_visit") {
