@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import type { CodemodeTool } from "@earendil-works/pi-codemode";
 
 export type FileMetadata = {
 	id: string;
@@ -53,9 +52,7 @@ export const putFile = (input: {
 	return metadata(file);
 };
 
-export const getFile = (
-	id: string,
-): { data: Buffer; fileName: string; mimeType: string } => {
+const requireFile = (id: string): StoredFile => {
 	prune();
 	const file = files.get(id);
 	if (!file)
@@ -63,10 +60,30 @@ export const getFile = (
 			"File unavailable: RAM files expire after 24 idle hours, release, or restart. Upload the source again.",
 		);
 	file.touched = Date.now();
+	return file;
+};
+
+export const getFile = (
+	id: string,
+): { data: Buffer; fileName: string; mimeType: string } => {
+	const file = requireFile(id);
 	return {
 		data: Buffer.from(file.data),
 		fileName: file.fileName,
 		mimeType: file.mimeType,
+	};
+};
+
+/** Copy only the requested bytes, not the whole file for each attachment chunk. */
+export const readFileChunk = (id: string, offset: number, length: number) => {
+	const file = requireFile(id);
+	if (!Number.isSafeInteger(offset) || offset < 0 || offset > file.size)
+		throw new Error("Offset exceeds file size or is invalid.");
+	if (!Number.isSafeInteger(length) || length < 1)
+		throw new Error("Chunk length must be a positive integer.");
+	return {
+		...metadata(file),
+		data: Buffer.from(file.data.subarray(offset, offset + length)),
 	};
 };
 export const listFiles = (): FileMetadata[] => {
@@ -74,90 +91,6 @@ export const listFiles = (): FileMetadata[] => {
 	return [...files.values()].map(metadata);
 };
 
-const objectArgs = (args: unknown): Record<string, unknown> => {
-	if (!args || typeof args !== "object" || Array.isArray(args))
-		throw new Error("Expected an argument object.");
-	return args as Record<string, unknown>;
-};
-const idArg = (args: Record<string, unknown>): string => {
-	if (typeof args.fileId !== "string" || !args.fileId)
-		throw new Error("fileId must be a nonempty string.");
-	return args.fileId;
-};
-
-export const fileTools: readonly CodemodeTool[] = [
-	{
-		name: "file_list",
-		description:
-			"List RAM files available for spreadsheet tools or attachment bridges. Files disappear after restart or 24 idle hours.",
-		inputSchema: {
-			type: "object",
-			properties: {},
-			additionalProperties: false,
-		},
-		execute: async (args) => {
-			objectArgs(args);
-			return listFiles();
-		},
-	},
-	{
-		name: "file_read",
-		description:
-			"Read immutable file bytes as base64 for MCP/email attachments. Offset and length count bytes, not base64 characters; max 4 MiB per chunk. Concatenate decoded chunks for larger files.",
-		inputSchema: {
-			type: "object",
-			properties: {
-				fileId: { type: "string" },
-				offset: { type: "integer", minimum: 0 },
-				length: { type: "integer", minimum: 1, maximum: 4194304 },
-			},
-			required: ["fileId"],
-			additionalProperties: false,
-		},
-		execute: async (input) => {
-			const args = objectArgs(input);
-			const id = idArg(args);
-			const offset = args.offset ?? 0;
-			const length = args.length ?? 4194304;
-			if (
-				typeof offset !== "number" ||
-				!Number.isSafeInteger(offset) ||
-				offset < 0 ||
-				typeof length !== "number" ||
-				!Number.isSafeInteger(length) ||
-				length < 1 ||
-				length > 4194304
-			)
-				throw new Error("Invalid byte offset/length; maximum chunk is 4 MiB.");
-			const file = getFile(id);
-			if (offset > file.data.length)
-				throw new Error("Offset exceeds file size.");
-			const chunk = file.data.subarray(offset, offset + length);
-			return {
-				id,
-				fileName: file.fileName,
-				mimeType: file.mimeType,
-				size: file.data.length,
-				offset,
-				length: chunk.length,
-				nextOffset: offset + chunk.length,
-				eof: offset + chunk.length === file.data.length,
-				base64: chunk.toString("base64"),
-			};
-		},
-	},
-	{
-		name: "file_release",
-		description:
-			"Release a RAM file. Already opened workbook copies are unaffected.",
-		inputSchema: {
-			type: "object",
-			properties: { fileId: { type: "string" } },
-			required: ["fileId"],
-			additionalProperties: false,
-		},
-		execute: async (args) => ({
-			released: files.delete(idArg(objectArgs(args))),
-		}),
-	},
-];
+export const releaseFile = (id: string): { released: boolean } => ({
+	released: files.delete(id),
+});

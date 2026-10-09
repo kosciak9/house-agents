@@ -233,20 +233,33 @@ const run = (operation: string, args: Record<string, unknown>): unknown => {
 		} finally {
 			model.resumeEvaluation();
 		}
-	} else if (operation === "style")
-		for (const [path, value] of Object.entries(
-			args.properties as Record<string, string>,
-		))
+	} else if (operation === "style") {
+		const properties = args.properties as Record<string, string>;
+		for (const [path, value] of Object.entries(properties)) {
+			if (path === "font.name") continue;
+			// IronCalc's style object names the size `sz`, but its range API uses `size`.
 			model.updateRangeStyle(
 				sheet,
 				row,
 				column,
 				endRow,
 				endColumn,
-				path,
+				path === "font.sz" ? "font.size" : path,
 				value,
 			);
-	else throw new Error(`Unsupported spreadsheet operation: ${operation}`);
+		}
+		if (properties["font.name"] !== undefined) {
+			// Font names have no range setter; raw style edits do not reparse cell values.
+			const snapshot = Model.fromBytes(model.toBytes(), "en");
+			for (let r = row; r <= endRow; r++)
+				for (let c = column; c <= endColumn; c++) {
+					const style = snapshot.getCellStyle(sheet, r, c);
+					style.font = { ...style.font, name: properties["font.name"] };
+					snapshot.setCellStyle(sheet, r, c, style);
+				}
+			model = UserModel.fromBytes(snapshot.toBytes(), "en");
+		}
+	} else throw new Error(`Unsupported spreadsheet operation: ${operation}`);
 	compact();
 	return info();
 };

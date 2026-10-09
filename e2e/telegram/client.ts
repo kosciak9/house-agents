@@ -383,7 +383,7 @@ export const sendDocumentAndWaitForReply = (
 	);
 
 /**
- * Waits for both a named document and the completed text reply, in either order.
+ * Waits for named documents and the completed text reply, in any order.
  * Listens before sending, and ignores background acknowledgements that do not
  * match. Downloads the actual Telegram attachment, not a local exported file.
  */
@@ -395,50 +395,57 @@ export const sendAndWaitForDocument = async (
 		fileName,
 		matches,
 		timeoutMs = 120_000,
-	}: { fileName: string; matches: MessageFilter; timeoutMs?: number },
+		additionalFileNames = [],
+	}: {
+		fileName: string;
+		matches: MessageFilter;
+		timeoutMs?: number;
+		additionalFileNames?: string[];
+	},
 ): Promise<{
 	data: Buffer;
 	fileName: string;
 	mimeType: string;
 	reply: string;
 	texts: string[];
+	additionalDocuments: { data: Buffer; fileName: string; mimeType: string }[];
 }> => {
 	const chatId = await botChatId(client, bot);
 	const texts: string[] = [];
-	let document: Message | undefined;
+	const fileNames = [fileName, ...additionalFileNames];
+	const documents = new Map<string, Message>();
 	let reply: string | undefined;
 	let unsubscribe = () => {};
 	let timer: ReturnType<typeof setTimeout> | undefined;
-	const received = new Promise<{ document: Message; reply: string }>(
-		(resolve, reject) => {
-			const onUpdate = (update: Update) => {
-				if (update._ !== "updateNewMessage") return;
-				const { message } = update;
-				if (message.chat_id !== chatId || message.is_outgoing) return;
-				const text = messageText(message);
-				if (text) texts.push(text);
-				if (text && matches(text)) reply = text;
-				if (
-					message.content._ === "messageDocument" &&
-					message.content.document.file_name === fileName
-				)
-					document = message;
-				if (document && reply !== undefined) resolve({ document, reply });
-			};
-			client.on("update", onUpdate);
-			unsubscribe = () => client.off("update", onUpdate);
-			timer = setTimeout(
-				() =>
-					reject(
-						new Error(
-							`No document ${fileName} and completed reply within ${timeoutMs} ms ` +
-								`(document received: ${Boolean(document)}, reply received: ${reply !== undefined}; texts: ${texts.join(" | ")})`,
-						),
+	const received = new Promise<{ reply: string }>((resolve, reject) => {
+		const onUpdate = (update: Update) => {
+			if (update._ !== "updateNewMessage") return;
+			const { message } = update;
+			if (message.chat_id !== chatId || message.is_outgoing) return;
+			const text = messageText(message);
+			if (text) texts.push(text);
+			if (text && matches(text)) reply = text;
+			if (
+				message.content._ === "messageDocument" &&
+				fileNames.includes(message.content.document.file_name)
+			)
+				documents.set(message.content.document.file_name, message);
+			if (fileNames.every((name) => documents.has(name)) && reply !== undefined)
+				resolve({ reply });
+		};
+		client.on("update", onUpdate);
+		unsubscribe = () => client.off("update", onUpdate);
+		timer = setTimeout(
+			() =>
+				reject(
+					new Error(
+						`No documents ${fileNames.join(", ")} and completed reply within ${timeoutMs} ms ` +
+							`(documents received: ${[...documents.keys()].join(", ")}, reply received: ${reply !== undefined}; texts: ${texts.join(" | ")})`,
 					),
-				timeoutMs,
-			);
-		},
-	);
+				),
+			timeoutMs,
+		);
+	});
 	// A send failure owns the error; don't leave a rejected waiter unhandled.
 	received.catch(() => {});
 	try {
@@ -461,26 +468,37 @@ export const sendAndWaitForDocument = async (
 						},
 		});
 		const result = await received;
-		if (result.document.content._ !== "messageDocument")
-			throw new Error("Expected a Telegram document.");
-		const attachment = result.document.content.document;
-		const downloaded = await client.invoke({
-			_: "downloadFile",
-			file_id: attachment.document.id,
-			priority: 32,
-			synchronous: true,
-		});
-		if (!downloaded.local.is_downloading_completed || !downloaded.local.path)
-			throw new Error(`Telegram did not finish downloading ${fileName}.`);
-		const data = readFileSync(downloaded.local.path);
-		if (data.length !== attachment.document.size)
-			throw new Error(`Incomplete Telegram document ${fileName}.`);
+		const download = async (name: string) => {
+			const document = documents.get(name);
+			if (document?.content._ !== "messageDocument")
+				throw new Error("Expected a Telegram document.");
+			const attachment = document.content.document;
+			const downloaded = await client.invoke({
+				_: "downloadFile",
+				file_id: attachment.document.id,
+				priority: 32,
+				synchronous: true,
+			});
+			if (!downloaded.local.is_downloading_completed || !downloaded.local.path)
+				throw new Error(`Telegram did not finish downloading ${name}.`);
+			const data = readFileSync(downloaded.local.path);
+			if (data.length !== attachment.document.size)
+				throw new Error(`Incomplete Telegram document ${name}.`);
+			return {
+				data,
+				fileName: attachment.file_name,
+				mimeType: attachment.mime_type,
+			};
+		};
+		const attachment = await download(fileName);
+		const additionalDocuments = await Promise.all(
+			additionalFileNames.map(download),
+		);
 		return {
-			data,
-			fileName: attachment.file_name,
-			mimeType: attachment.mime_type,
+			...attachment,
 			reply: result.reply,
 			texts,
+			additionalDocuments,
 		};
 	} finally {
 		clearTimeout(timer);

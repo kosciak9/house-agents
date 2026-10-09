@@ -8,19 +8,7 @@ text, photos, files and voice notes in, replies out — and the assistant
 remembers what matters from it long after the context is compacted.
 
 It is built on [pi-durable](https://www.npmjs.com/package/@earendil-works/pi-durable),
-which keeps the conversation durable across restarts. On top of it:
-
-- scheduled wake-ups, one-off and recurring, that come back into the same
-  conversation;
-- long-term memory beyond a single context;
-- voice notes transcribed with Whisper;
-- files read before the agent sees them: PDF pages as images, and other
-  documents converted to PDF by Gotenberg first;
-- tools from remote MCP servers, each agent allowed only the ones it is given;
-- subagents that take tasks in the background and report back to the thread,
-  each with a Lightpanda browser of its own if it is given one.
-
-Telegram is an adapter at the edge; the core does not depend on it.
+which keeps the conversation durable across restarts.
 
 ## Container
 

@@ -5,6 +5,7 @@ import type { CommandContext, Context, Filter } from "grammy";
 import { root } from "../agent/harness.ts";
 import { memory } from "../agent/memory.ts";
 import { readDocument } from "../documents/read.ts";
+import { officeFormat, officeFormats } from "../files/formats.ts";
 import { putFile } from "../files/store.ts";
 import { transcribe } from "../voice/whisper.ts";
 import { bot, chatId } from "./bot.ts";
@@ -53,15 +54,29 @@ export const handlePhotoMessage = async (
 
 	// Telegram re-encodes every photo as JPEG.
 	const image = await downloadFile(largest.file_id);
+	let attachment: string;
+	try {
+		const file = putFile({
+			data: image,
+			fileName: `photo-${message_id}.jpg`,
+			mimeType: "image/jpeg",
+		});
+		attachment = `Telegram photo stored as JPEG for file/image tools: ${JSON.stringify({ fileId: file.id, fileName: file.fileName, mimeType: file.mimeType, size: file.size })}. RAM reference expires on restart or after 24 idle hours.`;
+	} catch (error) {
+		console.error("Retaining photo bytes failed:", error);
+		attachment =
+			"The photo is shown below, but its bytes could not be retained for file/image tools. Release unused RAM files before uploading it again.";
+	}
 
 	await submitInput(message_id, [
 		...(caption ? [{ type: "text" as const, text: caption }] : []),
+		{ type: "text", text: attachment },
 		{ type: "image", data: image.toString("base64"), mimeType: "image/jpeg" },
 	]);
 };
 
-// Preserve the original bytes before making a model-facing preview. XLSX is
-// read through spreadsheet tools, not a lossy or potentially empty PDF render.
+// Editable Office files are inspected through format tools; other attachments
+// have a model-facing preview separate from their immutable original bytes.
 export const handleDocumentMessage = async (
 	ctx: Filter<Context, "message:document">,
 ): Promise<void> => {
@@ -80,15 +95,12 @@ export const handleDocumentMessage = async (
 		try {
 			const data = await downloadFile(document.file_id);
 			const file = putFile({ data, fileName, mimeType });
-			const spreadsheet =
-				/\.xlsx$/i.test(fileName) ||
-				mimeType ===
-					"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+			const format = officeFormat(file);
 			content.push({
 				type: "text",
-				text: `Original attachment stored in memory: ${JSON.stringify({ fileId: file.id, fileName: file.fileName, mimeType: file.mimeType, size: file.size })}. This fileId expires on process restart. ${spreadsheet ? "Use spreadsheet tools to open and inspect these original workbook bytes; no PDF conversion was made." : "Use file tools to access the original bytes; any preview below is separate."}`,
+				text: `Original attachment stored in memory: ${JSON.stringify({ fileId: file.id, fileName: file.fileName, mimeType: file.mimeType, size: file.size })}. This fileId expires on restart or after 24 idle hours. ${format ? `Use ${officeFormats[format].tools} to open an editable copy and inspect the original ${format.toUpperCase()} content. Format tools also preview and export derivatives; no automatic PDF conversion was made.` : "Use file tools to access the original bytes; any preview below is separate."}`,
 			});
-			if (!spreadsheet)
+			if (!format)
 				content.push(...(await readDocument({ data, fileName, mimeType })));
 		} catch (error) {
 			console.error(`Receiving document ${fileName} failed:`, error);

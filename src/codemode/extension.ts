@@ -1,4 +1,4 @@
-import { type ImageContent, Type } from "@earendil-works/pi-ai";
+import { type ImageContent, Type as ToolType } from "@earendil-works/pi-ai";
 import {
 	CodemodeSandbox,
 	type CodemodeTool,
@@ -6,8 +6,11 @@ import {
 	renderDeclarations,
 } from "@earendil-works/pi-codemode";
 import { defineTool } from "@earendil-works/pi-durable";
+import { Type } from "typebox";
 
-// Large spreadsheet jobs can run inside a background general subagent.
+import { localTool } from "./tool.ts";
+
+// Substantial file editing and other jobs can run in a background general subagent.
 const TIMEOUT_MS = 30 * 60_000;
 
 // Local and MCP tools reach the agent only through this one tool: it writes a script
@@ -55,15 +58,25 @@ export const createCodemodeTool = (tools: readonly CodemodeTool[]) => {
 		names.add(tool.name);
 	}
 	const search: CodemodeTool = {
-		name: "tool_search",
-		description:
+		...localTool(
+			"tool_search",
 			"Discover tool argument and return declarations by name or description keywords.",
-		inputSchema: {
-			type: "object",
-			properties: { query: { type: "string" } },
-			required: ["query"],
-			additionalProperties: false,
-		},
+			Type.Object({ query: Type.String() }, { additionalProperties: false }),
+			async ({ query }) => {
+				const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+				const matches = tools.filter((tool) => {
+					const about = `${tool.name} ${tool.description ?? ""}`.toLowerCase();
+					return words.every((word) => about.includes(word));
+				});
+				return {
+					matched: matches.length,
+					declarations: renderDeclarations({ tools: matches.slice(0, 20) }),
+					...(matches.length > 20 && {
+						note: "Showing the first 20 tools; narrow the query.",
+					}),
+				};
+			},
+		),
 		outputSchema: {
 			type: "object",
 			properties: {
@@ -72,33 +85,6 @@ export const createCodemodeTool = (tools: readonly CodemodeTool[]) => {
 				note: { type: "string" },
 			},
 			required: ["matched", "declarations"],
-		},
-		execute: async (args) => {
-			if (
-				typeof args !== "object" ||
-				args === null ||
-				Array.isArray(args) ||
-				!("query" in args) ||
-				typeof args.query !== "string" ||
-				Object.keys(args).some((key) => key !== "query")
-			)
-				throw new Error("tool_search expects { query: string }");
-			const words = args.query
-				.toLowerCase()
-				.trim()
-				.split(/\s+/)
-				.filter(Boolean);
-			const matches = tools.filter((tool) => {
-				const about = `${tool.name} ${tool.description ?? ""}`.toLowerCase();
-				return words.every((word) => about.includes(word));
-			});
-			return {
-				matched: matches.length,
-				declarations: renderDeclarations({ tools: matches.slice(0, 20) }),
-				...(matches.length > 20 && {
-					note: "Showing the first 20 tools; narrow the query.",
-				}),
-			};
 		},
 	};
 	return defineTool({
@@ -113,11 +99,11 @@ export const createCodemodeTool = (tools: readonly CodemodeTool[]) => {
 			"First discover argument/return declarations with `return await tools.tool_search({query: 'name or keywords'})`, " +
 			"then call the selected tools in another script. `ALL_TOOLS` lists names and descriptions. " +
 			"Keep file bytes inside scripts: file_read can supply base64 to external tools only when their discovered schema accepts it; " +
-			"external servers do not automatically understand local fileId references. Files and workbooks are in-memory and expire on restart.\n\n" +
+			"external servers do not automatically understand local fileId references. Files and working copies (XLSX, DOCX, PPTX) are in-memory and expire on restart.\n\n" +
 			`${MCP_TYPESCRIPT_PREAMBLE}\n\n${renderDeclarations({ tools: [search] })}\n\n` +
 			`Available tools:\n${tools.map((tool) => `${tool.name}: ${(tool.description ?? "").split("\n")[0]?.slice(0, 180)}`).join("\n")}`,
-		parameters: Type.Object({
-			code: Type.String({ description: "The script." }),
+		parameters: ToolType.Object({
+			code: ToolType.String({ description: "The script." }),
 		}),
 		execute: async ({ code }, _api, context) => {
 			const sandbox = new CodemodeSandbox({

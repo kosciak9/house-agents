@@ -51,8 +51,9 @@ const stopProcess = async (child: ChildProcess): Promise<void> => {
  * Runs the real bot (`e2e/agent.ts`) as a separate process against the test
  * environment, as the agent `prompt` describes. Without `stateDir` it starts
  * from an empty state that is deleted
- * on `stop`. It uses no MCP servers or subagents unless `mcpServers`, `mcp`
- * and `subagents` give them; MCP servers' OAuth tokens are kept in the state,
+ * on `stop`. Local file tools and the built-in general subagent are always
+ * available; `mcpServers`, `mcp` and `subagents` configure remote tools and
+ * specialists. MCP servers' OAuth tokens are kept in the state,
  * so they survive a restart too. It signs
  * in to model providers with the real credentials unless `credentialsFile`
  * names other ones. `model` and `fallbackModel` replace `e2e/agent.ts`'s.

@@ -2,8 +2,8 @@ import type { CodemodeTool } from "@earendil-works/pi-codemode";
 import { defineExtension, type Registry } from "@earendil-works/pi-durable";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
+import { createCodemodeTool } from "../codemode/extension.ts";
 import { allowedTools, connectServer } from "./client.ts";
-import { createCodemodeTool } from "./codemode.ts";
 import type { Policy, ServerConfig } from "./config.ts";
 import type { TokenStore } from "./oauth.ts";
 

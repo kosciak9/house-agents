@@ -26,6 +26,7 @@ const escapeHtml = (text: string): string =>
 export const convertToPdf = async (
 	gotenbergUrl: string,
 	file: { data: Buffer; fileName: string; mimeType: string },
+	signal?: AbortSignal,
 ): Promise<{ pdf: Buffer; engine: Engine }> => {
 	// LibreOffice picks the format by the extension.
 	const fileName = path.basename(file.fileName).replace(/[^\w.-]/gu, "_");
@@ -52,7 +53,9 @@ export const convertToPdf = async (
 	const response = await fetch(new URL(`forms/${route}`, `${gotenbergUrl}/`), {
 		method: "POST",
 		body: form,
-		signal: AbortSignal.timeout(TIMEOUT_MS),
+		signal: signal
+			? AbortSignal.any([AbortSignal.timeout(TIMEOUT_MS), signal])
+			: AbortSignal.timeout(TIMEOUT_MS),
 	});
 	if (!response.ok) {
 		throw new Error(`Gotenberg (${engine}) failed: ${response.status}`);

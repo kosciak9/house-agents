@@ -15,10 +15,10 @@ import {
 } from "@earendil-works/pi-durable";
 
 import { PromptFirstExtension } from "../agent/prompt-first.ts";
+import { createCodemodeTool } from "../codemode/extension.ts";
 import type { Model } from "../config.ts";
 import { connectLightpanda } from "../lightpanda/connect.ts";
 import { type Connection, connectServers } from "../mcp/client.ts";
-import { createCodemodeTool } from "../mcp/codemode.ts";
 import type { ServerConfig } from "../mcp/config.ts";
 import type { TokenStore } from "../mcp/oauth.ts";
 import type { SubagentConfig } from "./config.ts";
@@ -52,10 +52,10 @@ const CallDoc = defineDoc<{ job: TaskId<string | null> | null }>({
 
 const GENERAL_DESCRIPTION =
 	"Same model, instructions and tools as you, in an isolated context. Use for " +
-	"expensive spreadsheet work and other substantial standalone tasks. Pass the " +
-	"source fileId and all requirements; have it open a separate workbook copy " +
+	"substantial standalone tasks, including expensive file editing. Pass the " +
+	"source fileId and all requirements; have it open a separate working copy " +
 	"or clone before editing, and return the exported fileId in its text answer, " +
-	"never file bytes. File and workbook handles are volatile: after a process " +
+	"never file bytes. File and working-copy handles (XLSX, DOCX, PPTX) are volatile: after a process " +
 	"restart an old handle may be unavailable; report that failure, do not invent " +
 	"a replacement.";
 
@@ -77,8 +77,8 @@ export const createGeneralRunExtension = (conversation: ConversationId) =>
 					"a substantive text answer to your parent, not a user-facing " +
 					"acknowledgement, reaction or NO_REPLY. If you delegate, " +
 					"the subagent tool waits for that work before returning; " +
-					"use its answers to finish your own task. Workbook and " +
-					"file handles may not survive a process restart; report " +
+					"use its answers to finish your own task. File and working-copy " +
+					"handles (XLSX, DOCX, PPTX) may not survive a process restart; report " +
 					"missing sources explicitly. Return exported fileIds as " +
 					"text, never bytes.",
 			),

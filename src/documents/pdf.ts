@@ -18,17 +18,36 @@ export type Pages = {
 };
 
 /** The first pages of a PDF, rendered as images a model reads. */
-export const renderPages = async (data: Buffer): Promise<Pages> => {
+export const renderPages = async (
+	data: Buffer,
+	signal?: AbortSignal,
+): Promise<Pages> => {
+	signal?.throwIfAborted();
 	const loading = getDocument({
 		data: new Uint8Array(data),
 		standardFontDataUrl,
 	});
+	let cancelLoading: () => void = () => undefined;
+	const loaded = signal
+		? Promise.race([
+				loading.promise,
+				new Promise<never>((_resolve, reject) => {
+					cancelLoading = () =>
+						reject(signal.reason ?? new Error("PDF preview cancelled."));
+					signal.addEventListener("abort", cancelLoading, { once: true });
+					if (signal.aborted) cancelLoading();
+				}),
+			])
+		: loading.promise;
 
 	try {
-		const document = await loading.promise;
+		const document = await loaded;
+		signal?.removeEventListener("abort", cancelLoading);
+		signal?.throwIfAborted();
 		const images: Buffer[] = [];
 		const shown = Math.min(document.numPages, MAX_PAGES);
 		for (let number = 1; number <= shown; number++) {
+			signal?.throwIfAborted();
 			const page = await document.getPage(number);
 			const { width, height } = page.getViewport({ scale: 1 });
 			const viewport = page.getViewport({
@@ -38,15 +57,26 @@ export const renderPages = async (data: Buffer): Promise<Pages> => {
 				Math.ceil(viewport.width),
 				Math.ceil(viewport.height),
 			);
-			await page.render({
+			const rendering = page.render({
 				canvas: canvas as unknown as HTMLCanvasElement,
 				viewport,
-			}).promise;
-			images.push(await canvas.encode("jpeg", 80));
-			page.cleanup();
+			});
+			const cancel = () => rendering.cancel();
+			signal?.addEventListener("abort", cancel, { once: true });
+			try {
+				if (signal?.aborted) cancel();
+				await rendering.promise;
+				signal?.throwIfAborted();
+				images.push(await canvas.encode("jpeg", 80));
+				signal?.throwIfAborted();
+			} finally {
+				signal?.removeEventListener("abort", cancel);
+				page.cleanup();
+			}
 		}
 		return { images, pageCount: document.numPages };
 	} finally {
+		signal?.removeEventListener("abort", cancelLoading);
 		await loading.destroy();
 	}
 };
