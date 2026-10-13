@@ -14,7 +14,8 @@ type ActiveDraft = {
 let activeDraft: ActiveDraft | undefined;
 
 export const startProgress = (draftId: number): void => {
-	activeDraft = { draftId, tools: new Map() };
+	// Telegram drafts are supported only in private chats, not groups.
+	activeDraft = chatId > 0 ? { draftId, tools: new Map() } : undefined;
 };
 
 export const stopProgress = (): void => {
@@ -47,7 +48,15 @@ export const publishProgress = async (
 	const markdown = renderProgress(draft.tools.values());
 	if (!markdown) return;
 
-	await bot.api.sendRichMessageDraft(chatId, draft.draftId, {
-		markdown,
-	});
+	try {
+		await bot.api.sendRichMessageDraft(chatId, draft.draftId, {
+			markdown,
+		});
+	} catch {
+		// A failed status preview must never interrupt the tool itself.
+		activeDraft = undefined;
+		console.warn(
+			"Telegram tool progress preview failed; continuing without it",
+		);
+	}
 };
