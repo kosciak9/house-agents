@@ -9,7 +9,7 @@ export type FileMetadata = {
 type StoredFile = FileMetadata & { data: Buffer; touched: number };
 const files = new Map<string, StoredFile>();
 const MAX_BYTES = 256 * 1024 * 1024;
-const MAX_FILE_BYTES = 64 * 1024 * 1024;
+export const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const TTL = 24 * 60 * 60_000;
 
 const prune = () => {

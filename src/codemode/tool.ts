@@ -98,7 +98,9 @@ export const createCodemodeTool = (tools: readonly CodemodeTool[]) => {
 			"it are shown too. There is no fetch, timers or modules. " +
 			"First discover argument/return declarations with `return await tools.tool_search({query: 'name or keywords'})`, " +
 			"then call the selected tools in another script. `ALL_TOOLS` lists names and descriptions. " +
-			"Keep file bytes inside scripts: file_read can supply base64 to external tools only when their discovered schema accepts it; " +
+			"Keep file bytes inside scripts: request original/base64 content from an external attachment tool, " +
+			"then pass it to file_import to get a local fileId for editing. file_read_text and file_import edit UTF-8 text; " +
+			"Office tools open and export XLSX, DOCX and PPTX. file_read can supply base64 to external tools only when their discovered schema accepts it; " +
 			"external servers do not automatically understand local fileId references. Files and working copies (XLSX, DOCX, PPTX) are in-memory and expire on restart.\n\n" +
 			`${MCP_TYPESCRIPT_PREAMBLE}\n\n${renderDeclarations({ tools: [search] })}\n\n` +
 			`Available tools:\n${tools.map((tool) => `${tool.name}: ${(tool.description ?? "").split("\n")[0]?.slice(0, 180)}`).join("\n")}`,

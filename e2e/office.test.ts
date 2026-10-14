@@ -131,7 +131,10 @@ test("office: XLSX, general subagent, DOCX and PPTX through code mode", {
 					text: script(
 						codemode(
 							`${FIND_FILE}const source = await file(${quoted(xlsxSource)});
-const { workbookId } = await tools.spreadsheet_open({ fileId: source.id });
+const bytes = await tools.file_read({ fileId: source.id });
+if (!bytes.eof) throw new Error("Fixture exceeds one chunk");
+const imported = await tools.file_import({ fileName: "mail-source.xlsx", mimeType: bytes.mimeType, content: bytes.base64, encoding: "base64" });
+const { workbookId } = await tools.spreadsheet_open({ fileId: imported.id });
 await tools.spreadsheet_write({ workbookId, sheet: "Data", cells: [
 	{ row: 2, column: 1, value: 20 },
 	{ row: 2, column: 2, value: 7 },
@@ -184,6 +187,40 @@ await tools.spreadsheet_close({ workbookId });`,
 			]);
 			assert.equal(edited.getCellValue(0, 3, 7), false);
 			assert.equal(edited.getCellValue(0, 3, 8), null);
+		},
+	);
+
+	await t.test(
+		"imports, edits and delivers Markdown without changing its source",
+		async () => {
+			const fileName = `edited-${runId}.md`;
+			const original = `# Dokument\nZażółć gęślą jaźń ${runId}\nDo poprawy.\n`;
+			const expected = original.replace("Do poprawy.", "Poprawione.");
+			const completed = `MARKDOWN-DONE-${runId}`;
+			const attachment = await sendAndWaitForDocument(
+				client,
+				bot,
+				{
+					text: script(
+						codemode(`const source = await tools.file_import({ fileName: "source.md", mimeType: "text/markdown", content: ${quoted(Buffer.from(original).toString("base64"))}, encoding: "base64" });
+const read = await tools.file_read_text({ fileId: source.id });
+const edited = await tools.file_import({ fileName: ${quoted(fileName)}, mimeType: read.mimeType, content: read.text.replace("Do poprawy.", "Poprawione."), encoding: "utf8" });
+const unchanged = await tools.file_read_text({ fileId: source.id });
+if (unchanged.text !== ${quoted(original)}) throw new Error("Source changed");
+let rejected = false;
+try { await tools.file_import({ fileName: "invalid.bin", mimeType: "application/octet-stream", content: "not base64!", encoding: "base64" }); } catch { rejected = true; }
+if (!rejected) throw new Error("Invalid base64 accepted");
+await tools.telegram_send_file({ fileId: edited.id });`),
+						say(completed),
+					),
+				},
+				{
+					fileName,
+					matches: (text) => text.includes(completed),
+					timeoutMs: MINUTE,
+				},
+			);
+			assert.equal(attachment.data.toString("utf8"), expected);
 		},
 	);
 
