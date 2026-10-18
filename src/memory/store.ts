@@ -178,18 +178,17 @@ export const openMemory = async (
 export const appendLeaf = async (
 	tx: Tx,
 	leaf: Omit<StoredLeaf, "session">,
-): Promise<void> => {
+): Promise<Leaf> => {
 	const index = await tx.doc(MemoryIndex);
 	const id = index.count;
 	const session = createHash("sha256")
 		.update(`${id}:${leaf.from}:${leaf.to}`)
 		.digest("hex")
 		.slice(0, 8);
-	(await tx.doc(LeafPages, leafPage(id), null)).leaves.push({
-		session,
-		...leaf,
-	});
+	const stored = { session, ...leaf };
+	(await tx.doc(LeafPages, leafPage(id), null)).leaves.push(stored);
 	index.count = id + 1;
+	return { id, ...stored };
 };
 
 /**

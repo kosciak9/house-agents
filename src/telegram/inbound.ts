@@ -6,6 +6,7 @@ import { root } from "../agent/harness.ts";
 import { memory } from "../agent/memory.ts";
 import { readDocument } from "../documents/read.ts";
 import { type FileMetadata, putFile } from "../files/store.ts";
+import { userSpoke } from "../memory/keeper.ts";
 import { officeFormat, officeFormats } from "../office/formats.ts";
 import { transcribe } from "../voice/whisper.ts";
 import { bot, chatId } from "./bot.ts";
@@ -28,6 +29,7 @@ const submitInput = async (
 ): Promise<void> => {
 	setReplyTarget(messageId);
 	startProgress(messageId);
+	userSpoke();
 
 	try {
 		const submission = await root.submit(

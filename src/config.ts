@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ModelThinkingLevel, Provider } from "@earendil-works/pi-ai";
+import { Cron } from "croner";
 
 // Everything the deployment decides comes in one `Config`, which it passes to
 // `startAgent()` (`src/index.ts`) in code or exports as the default of
@@ -101,6 +102,12 @@ export type Config = {
 	mcp?: McpPolicy;
 	/** The subagents the agent may start, by name. */
 	subagents?: Record<string, Subagent>;
+	/**
+	 * When to compact the conversation on a schedule as well, e.g. `0 5 * * *`
+	 * after the agent's own night routine: each firing waits for the run in
+	 * progress to end. The agent never sees it.
+	 */
+	compaction?: { cron: string; timeZone?: string };
 	/** Where the agent keeps its session and tokens; `state` by default. */
 	stateDir?: string;
 	/** Model provider logins; `<stateDir>/auth.json` by default. */
@@ -124,6 +131,21 @@ export const readConfigFile = async (): Promise<Config> => {
 		);
 	}
 	return (await import(pathToFileURL(file).href)).default;
+};
+
+const isValidCompaction = ({
+	cron,
+	timeZone,
+}: {
+	cron: string;
+	timeZone?: string;
+}) => {
+	try {
+		new Cron(cron, { timezone: timeZone, paused: true }).nextRun();
+		return true;
+	} catch {
+		return false;
+	}
 };
 
 let current: Config | undefined;
@@ -169,6 +191,15 @@ export const useConfig = (value: Config): void => {
 			!URL.canParse(value.gotenbergUrl))
 	) {
 		throw new Error("config.gotenbergUrl must be a URL");
+	}
+	if (
+		value.compaction !== undefined &&
+		(typeof value.compaction?.cron !== "string" ||
+			!isValidCompaction(value.compaction))
+	) {
+		throw new Error(
+			"config.compaction needs a valid cron and, if given, an IANA timeZone",
+		);
 	}
 	current = value;
 };

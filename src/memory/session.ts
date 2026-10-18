@@ -11,9 +11,15 @@ import {
 } from "@earendil-works/pi-durable";
 
 import { recordModelUsage } from "../agent/usage.ts";
+import { announceLeaf } from "./announce.ts";
 import { askLine } from "./llm.ts";
 import { backoffMs, ensureNapTask } from "./nap.ts";
-import { appendLeaf, MemoryIndex, type SessionRange } from "./store.ts";
+import {
+	appendLeaf,
+	type Leaf,
+	MemoryIndex,
+	type SessionRange,
+} from "./store.ts";
 import { readTranscript, type Transcript } from "./transcript.ts";
 import { ENTRY_BYTES } from "./tree.ts";
 
@@ -183,7 +189,9 @@ export const SessionTask = defineTask<SessionInput, SessionState, null>({
 				runtime.report(new Error(`Session summary failed: ${answer.error}`));
 			}
 
+			let added: Leaf | undefined;
 			await runtime.commit(async (tx) => {
+				added = undefined;
 				await recordModelUsage(
 					tx,
 					`${task.input.model.provider}/${task.input.model.modelId}`,
@@ -203,7 +211,7 @@ export const SessionTask = defineTask<SessionInput, SessionState, null>({
 				const current = await tx.doc(MemoryIndex);
 				if (sameRange(current.queue[0], range)) {
 					if (answer?.ok) {
-						await appendLeaf(tx, {
+						added = await appendLeaf(tx, {
 							from: range.from,
 							to: range.to,
 							start: transcript.start ?? "",
@@ -216,6 +224,7 @@ export const SessionTask = defineTask<SessionInput, SessionState, null>({
 				}
 				return continueOrFinish(tx, task.id, next);
 			}, context);
+			if (added !== undefined) announceLeaf(added);
 		},
 
 		backoff: async (task, runtime, context) => {

@@ -28,15 +28,17 @@ import {
 	createMcpCommand,
 	LOGIN_COMMAND,
 } from "./mcp.ts";
+import { announceMemory } from "./memory.ts";
 import { forwardAssistantMessages } from "./outbound.ts";
 import { showTyping } from "./typing.ts";
 
 /**
- * Sends every answer of the conversation to the chat, and a word whenever the
- * agent turns to its fallback model or back.
+ * Sends every answer of the conversation to the chat, a word whenever the
+ * agent turns to its fallback model or back, and every new line of memory.
  */
 export const forwardToTelegram = (): Promise<void> => {
 	announceModelSwitches();
+	announceMemory();
 	return forwardAssistantMessages(harness, root.id);
 };
 

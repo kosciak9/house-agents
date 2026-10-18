@@ -7,8 +7,9 @@
 // It comes back on a model that fails, xAI's, which E2E never logs in to:
 // the chat hears so, and the fallback model answers in its place from then
 // on. The chat's menu offers /compact, which says when it starts and when it
-// is done. After it ends the conversation and starts a new context, the agent
-// still knows what it was told, down to details its memory has no room for.
+// is done, and the chat sees the line of memory the session leaves. After it
+// ends the conversation and starts a new context, the agent still knows what
+// it was told, down to details its memory has no room for.
 // Runs its own bot processes on one session that outlives each of them; the
 // steps build on each other, so they run as one chain.
 import assert from "node:assert/strict";
@@ -219,21 +220,29 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 		assert.ok((await botCommands(client, bot)).includes("compact"));
 	});
 
-	await t.test("knows both in a new context", async () => {
-		await sendAndWaitForReply(client, bot, "/compact", {
-			matches: (text) => /skompaktowana/i.test(text),
-			timeoutMs: MINUTE,
-		});
-		const reply = await sendAndWaitForReply(
-			client,
-			bot,
-			`Jak wabi się mój kot i ile Kafelek policzył za pozycję "${asked}"? ` +
-				"Odpowiedz w formacie: imię, kwota.",
-			{ matches: isNotTick, timeoutMs: 3 * MINUTE },
-		);
-		assert.match(reply, new RegExp(cat, "i"));
-		assert.match(reply.replace(/\s/g, ""), new RegExp(String(askedPrice)));
-	});
+	await t.test(
+		"knows both in a new context, the chat sees its memory",
+		async () => {
+			const remembered = waitForBotMessage(client, bot, {
+				matches: (text) => text.startsWith("🧠"),
+				timeoutMs: 2 * MINUTE,
+			});
+			await sendAndWaitForReply(client, bot, "/compact", {
+				matches: (text) => /skompaktowana/i.test(text),
+				timeoutMs: MINUTE,
+			});
+			await remembered;
+			const reply = await sendAndWaitForReply(
+				client,
+				bot,
+				`Jak wabi się mój kot i ile Kafelek policzył za pozycję "${asked}"? ` +
+					"Odpowiedz w formacie: imię, kwota.",
+				{ matches: isNotTick, timeoutMs: 3 * MINUTE },
+			);
+			assert.match(reply, new RegExp(cat, "i"));
+			assert.match(reply.replace(/\s/g, ""), new RegExp(String(askedPrice)));
+		},
+	);
 
 	await t.test(
 		"diagnostics current resets at compaction, memory is read-only and zoomable",
