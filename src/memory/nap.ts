@@ -36,14 +36,32 @@ const SYSTEM_PROMPT =
 export const backoffMs = (attempt: number): number =>
 	Math.min(60 * 60 * 1000, 60 * 1000 * 2 ** (attempt - 1));
 
-/** Starts merging in `tx` when something is pending and no task does it yet. */
-export const ensureNapTask = async (tx: Tx, model: ModelRef): Promise<void> => {
+/**
+ * Whether task `id` may still run. A transaction reads tasks only before its
+ * first write, so callers ask this up front.
+ */
+export const isLive = async (tx: Tx, id: number | null): Promise<boolean> => {
+	if (id === null) return false;
+	const task = await tx.task(id as TaskId);
+	return task !== undefined && task.state.status !== "terminal";
+};
+
+/** Whether the task writing summaries may still run; see `isLive`. */
+export const napTaskLive = async (tx: Tx): Promise<boolean> =>
+	isLive(tx, (await tx.doc(MemoryIndex)).napTaskId);
+
+/**
+ * Starts merging in `tx` when something is pending and no task does it yet:
+ * `live` is `napTaskLive` read before the transaction's first write.
+ */
+export const ensureNapTask = async (
+	tx: Tx,
+	model: ModelRef,
+	live: boolean,
+): Promise<void> => {
 	const index = await tx.doc(MemoryIndex);
 	if (nextPending(index.count, index.levels) === undefined) return;
-	if (index.napTaskId !== null) {
-		const task = await tx.task(index.napTaskId as TaskId);
-		if (task !== undefined && task.state.status !== "terminal") return;
-	}
+	if (live) return;
 	index.napTaskId = await tx.createTask(
 		NapTask,
 		{ model },

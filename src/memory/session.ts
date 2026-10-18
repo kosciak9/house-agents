@@ -13,7 +13,7 @@ import {
 import { recordModelUsage } from "../agent/usage.ts";
 import { announceLeaf } from "./announce.ts";
 import { askLine } from "./llm.ts";
-import { backoffMs, ensureNapTask } from "./nap.ts";
+import { backoffMs, ensureNapTask, isLive, napTaskLive } from "./nap.ts";
 import {
 	appendLeaf,
 	type Leaf,
@@ -62,14 +62,18 @@ const fit = (text: string): string => {
 	return `${text.slice(0, half)}\n[… middle of the conversation cut …]\n${text.slice(-half)}`;
 };
 
-/** Starts writing leaves in `tx` when sessions wait and no task does it yet. */
-const ensureSessionTask = async (tx: Tx, model: ModelRef): Promise<void> => {
+/**
+ * Starts writing leaves in `tx` when sessions wait and no task does it yet:
+ * `live` is read before the transaction's first write (`isLive`).
+ */
+const ensureSessionTask = async (
+	tx: Tx,
+	model: ModelRef,
+	live: boolean,
+): Promise<void> => {
 	const index = await tx.doc(MemoryIndex);
 	if (index.queue.length === 0) return;
-	if (index.sessionTaskId !== null) {
-		const task = await tx.task(index.sessionTaskId as TaskId);
-		if (task !== undefined && task.state.status !== "terminal") return;
-	}
+	if (live) return;
 	index.sessionTaskId = await tx.createTask(
 		SessionTask,
 		{ model },
@@ -105,6 +109,7 @@ const hasInput = async (tx: Tx, after: number): Promise<boolean> => {
  */
 const closeSession = async (tx: Tx, model: ModelRef): Promise<boolean> => {
 	const index = await tx.doc(MemoryIndex);
+	const live = await isLive(tx, index.sessionTaskId);
 	if (!(await hasInput(tx, index.closedTo))) return false;
 	const tail = (
 		await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID }, 1)
@@ -112,7 +117,7 @@ const closeSession = async (tx: Tx, model: ModelRef): Promise<boolean> => {
 	if (tail === undefined) return false;
 	index.queue.push({ from: index.closedTo + 1, to: tail.id });
 	index.closedTo = tail.id;
-	await ensureSessionTask(tx, model);
+	await ensureSessionTask(tx, model, live);
 	return true;
 };
 
@@ -192,6 +197,7 @@ export const SessionTask = defineTask<SessionInput, SessionState, null>({
 			let added: Leaf | undefined;
 			await runtime.commit(async (tx) => {
 				added = undefined;
+				const napLive = await napTaskLive(tx);
 				await recordModelUsage(
 					tx,
 					`${task.input.model.provider}/${task.input.model.modelId}`,
@@ -218,7 +224,7 @@ export const SessionTask = defineTask<SessionInput, SessionState, null>({
 							end: transcript.end ?? "",
 							text: answer.text,
 						});
-						await ensureNapTask(tx, task.input.model);
+						await ensureNapTask(tx, task.input.model, napLive);
 					}
 					current.queue.shift();
 				}
