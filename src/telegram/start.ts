@@ -85,7 +85,7 @@ export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 		},
 		{
 			command: "diagnostics",
-			description: "Zużycie, bieżąca sesja, pamięć i narzędzia agenta",
+			description: "Zużycie, bieżąca sesja, pamięć, skille i narzędzia agenta",
 			handlers: [createDiagnosticsCommand(mcp)],
 		},
 	];

@@ -10,7 +10,8 @@
 // chat's menu offers /compact, which says when it starts and when it is done,
 // and the chat sees the line of memory the session leaves. After it ends the
 // conversation and starts a new context, the agent still knows what it was
-// told, down to details its memory has no room for.
+// told, down to details its memory has no room for. A skill it is taught
+// names the conversation it came from: this one, then its session of memory.
 // Runs its own bot processes on one session that outlives each of them; the
 // steps build on each other, so they run as one chain.
 import assert from "node:assert/strict";
@@ -238,6 +239,18 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 		);
 	});
 
+	await t.test("keeps a skill it is taught", async () => {
+		await say(
+			"Zapisz skill o nazwie wyceny-remontow: każdą wycenę remontu podsumowuj " +
+				"jedną kwotą łączną. Potwierdź jednym zdaniem.",
+		);
+		assert.match(
+			await say("/diagnostics skills"),
+			/- wyceny-remontow: .*\(from this conversation\)/,
+		);
+		assert.match(await say("/diagnostics skills wyceny-remontow"), /kwot/i);
+	});
+
 	await t.test("offers /compact in the chat's menu", async () => {
 		assert.ok((await botCommands(client, bot)).includes("compact"));
 	});
@@ -267,7 +280,7 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 	);
 
 	await t.test(
-		"diagnostics current resets at compaction, memory is read-only and zoomable",
+		"diagnostics current resets at compaction, memory is read-only and zoomable, skills name their session",
 		async () => {
 			const usage = await say("/diagnostics usage");
 			const current = await say("/diagnostics current");
@@ -278,6 +291,11 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 			const leaf = /\[[0-9a-f]{8}\] [^\n]+/.exec(memory)?.[0];
 			assert.ok(leaf, `Missing saved memory in: ${memory}`);
 			assert.ok((await say("/diagnostics memory #0-1")).includes(leaf));
+			const session = leaf.slice(0, 10);
+			assert.ok(
+				(await say("/diagnostics skills")).includes(`(from ${session})`),
+				`The skill does not name ${session}`,
+			);
 			assert.match(await say("/diagnostics memory #1-2"), /Użycie:/);
 			assert.equal(await say("/diagnostics memory"), memory);
 			assert.equal(await say("/diagnostics usage"), usage);

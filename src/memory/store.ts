@@ -107,6 +107,8 @@ export type MemoryReader = {
 	readonly count: number;
 	readonly levels: Levels;
 	readonly queue: readonly SessionRange[];
+	/** Last transcript entry already handed to a session. */
+	readonly closedTo: number;
 	leaves(lo: number, hi: number): Promise<Leaf[]>;
 	summary(block: Block): Promise<string | undefined>;
 	/** First and last date a block covers. */
@@ -159,6 +161,7 @@ export const openMemory = async (
 		count: index.count,
 		levels: index.levels,
 		queue: index.queue,
+		closedTo: index.closedTo,
 		leaves,
 
 		summary: async (block) => {

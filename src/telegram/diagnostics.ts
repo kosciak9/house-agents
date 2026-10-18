@@ -11,6 +11,7 @@ import { currentUsage } from "../agent/usage.ts";
 import { LIGHTPANDA_TOOLS } from "../lightpanda/connect.ts";
 import { toolName } from "../mcp/client.ts";
 import type { Mcp } from "../mcp/start.ts";
+import { skillLines, skillText } from "../memory/skills.ts";
 import { openMemory } from "../memory/store.ts";
 import { parseBlock } from "../memory/tree.ts";
 import { memoryLines, zoomLines } from "../memory/wake.ts";
@@ -113,6 +114,30 @@ const showMemory = async (ctx: Context, address: string): Promise<void> => {
 	);
 };
 
+// The skills as the agent lists them, or one of them in full.
+const showSkills = async (ctx: Context, name: string): Promise<void> => {
+	if (name !== "") {
+		const found = await skillText(harness, BACKGROUND_CONTEXT, name);
+		await replyText(
+			ctx,
+			found ?? `Nie ma skilla "${name}". Lista: /diagnostics skills`,
+		);
+		return;
+	}
+	const lines = await skillLines(harness, BACKGROUND_CONTEXT);
+	await replyText(
+		ctx,
+		[
+			`Skille — ${lines.length}`,
+			"Każdy ze wskazaniem rozmów, z których powstał.",
+			"",
+			...(lines.length > 0 ? lines : ["Agent nie ma jeszcze skilli."]),
+			"",
+			"Treść: /diagnostics skills <nazwa>",
+		].join("\n"),
+	);
+};
+
 export const handleDiagnosticsMemoryCallback = async (
 	ctx: CallbackQueryContext<Context>,
 ): Promise<void> => {
@@ -150,9 +175,12 @@ export const createDiagnosticsCommand =
 			case "memory":
 				await showMemory(ctx, args.join(" "));
 				return;
+			case "skills":
+				await showSkills(ctx, args.join(" "));
+				return;
 			default:
 				await ctx.reply(
-					"Użycie: /diagnostics usage | current | memory [#a-b] | tools",
+					"Użycie: /diagnostics usage | current | memory [#a-b] | skills [nazwa] | tools",
 				);
 		}
 	};

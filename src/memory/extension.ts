@@ -9,6 +9,7 @@ import {
 
 import { NapTask } from "./nap.ts";
 import { compact, SessionTask } from "./session.ts";
+import { renderSkills, skillReadTool, skillWriteTool } from "./skills.ts";
 import { createMemoryAskTool, keepsMemory, memoryZoomTool } from "./tools.ts";
 import { renderWake } from "./wake.ts";
 
@@ -19,7 +20,8 @@ const SECTION = "memory";
 // each one that ends becomes one line of memory, written by `model`, and
 // pairs of lines merge upwards into a binary tree. The agent reads the tree in
 // its system prompt, zooms down to a past session and asks `model` about its
-// full transcript. It never takes notes itself.
+// full transcript. It never takes notes itself; it keeps skills, each tied by
+// code to the conversations it compresses.
 export const createMemory = ({
 	models,
 	model,
@@ -36,12 +38,23 @@ export const createMemory = ({
 				// context reads the memory afresh.
 				async (input, context) => {
 					if (!keepsMemory(input.conversationId)) return undefined;
-					return input.shown[SECTION] ?? renderWake(input.read, context);
+					return (
+						input.shown[SECTION] ??
+						[
+							await renderWake(input.read, context),
+							await renderSkills(input.read, context),
+						].join("\n\n")
+					);
 				},
 				{ tag: false },
 			),
 		],
-		tools: [memoryZoomTool, createMemoryAskTool({ models, model })],
+		tools: [
+			memoryZoomTool,
+			createMemoryAskTool({ models, model }),
+			skillReadTool,
+			skillWriteTool,
+		],
 		tasks: [SessionTask, NapTask],
 	}),
 
