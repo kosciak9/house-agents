@@ -30,6 +30,7 @@ import {
 } from "./mcp.ts";
 import { announceMemory } from "./memory.ts";
 import { forwardAssistantMessages } from "./outbound.ts";
+import { inTurn } from "./turns.ts";
 import { showTyping } from "./typing.ts";
 
 /**
@@ -100,12 +101,13 @@ export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 		"message:text",
 		createLoginAnswer(mcp),
 		takeLoginAnswer,
+		inTurn,
 		showTyping,
 		handleTextMessage,
 	);
-	chat.on("message:photo", showTyping, handlePhotoMessage);
-	chat.on("message:voice", showTyping, handleVoiceMessage);
-	chat.on("message:document", showTyping, handleDocumentMessage);
+	chat.on("message:photo", inTurn, showTyping, handlePhotoMessage);
+	chat.on("message:voice", inTurn, showTyping, handleVoiceMessage);
+	chat.on("message:document", inTurn, showTyping, handleDocumentMessage);
 	// Only the cause: the context it comes with holds the bot's token.
 	bot.catch(({ error, ctx }) => {
 		console.error(`Telegram error in update ${ctx.update.update_id}:`, error);

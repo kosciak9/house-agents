@@ -6,10 +6,11 @@
 // that fell due while the bot was down reaches the chat once it is back.
 // It comes back on a model that fails, xAI's, which E2E never logs in to:
 // the chat hears so, and the fallback model answers in its place from then
-// on. The chat's menu offers /compact, which says when it starts and when it
-// is done, and the chat sees the line of memory the session leaves. After it
-// ends the conversation and starts a new context, the agent still knows what
-// it was told, down to details its memory has no room for.
+// on. Commands answer at once, even while the agent works on a message. The
+// chat's menu offers /compact, which says when it starts and when it is done,
+// and the chat sees the line of memory the session leaves. After it ends the
+// conversation and starts a new context, the agent still knows what it was
+// told, down to details its memory has no room for.
 // Runs its own bot processes on one session that outlives each of them; the
 // steps build on each other, so they run as one chain.
 import assert from "node:assert/strict";
@@ -28,6 +29,7 @@ import {
 	recentMessages,
 	sendAndWaitForReaction,
 	sendAndWaitForReply,
+	sendToBot,
 	sendVoiceAndWaitForReply,
 	waitForBotMessage,
 	watchBotActivity,
@@ -206,6 +208,26 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 		});
 		assert.equal(emoji, "👍");
 		assert.deepEqual(await recentMessages(client, bot, 1), [thanks]);
+	});
+
+	await t.test("answers a command while the agent works", async () => {
+		const order: string[] = [];
+		const answered = waitForBotMessage(client, bot, {
+			matches: (text) => /KONIEC/.test(text),
+			timeoutMs: 2 * MINUTE,
+		}).then(() => order.push("answer"));
+		await sendToBot(
+			client,
+			bot,
+			"Napisz czterowersowy wierszyk o kocie, a na końcu słowo KONIEC.",
+		);
+		const diagnosed = waitForBotMessage(client, bot, {
+			matches: (text) => /Razem: /.test(text),
+			timeoutMs: MINUTE,
+		}).then(() => order.push("diagnostics"));
+		await sendToBot(client, bot, "/diagnostics usage");
+		await Promise.all([answered, diagnosed]);
+		assert.deepEqual(order, ["diagnostics", "answer"]);
 	});
 
 	await t.test("hears a long quote", async () => {
