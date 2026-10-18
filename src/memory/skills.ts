@@ -118,6 +118,9 @@ export const SKILLS_NOTE = [
 	"</skills>",
 ].join("\n");
 
+// skill_search returns this many skills a call, so a long list stays out of the context.
+const PAGE = 20;
+
 const NOT_KEPT = "Only the main conversation keeps skills.";
 
 const name = Type.String({
@@ -129,32 +132,37 @@ export const skillTools: readonly CodemodeTool[] = [
 		"skill_search",
 		"Search your skills, how the user wants things done, by keywords; look before a task.\n" +
 			"Matches every word of `query` in a skill's name, description or body; an empty query " +
-			"lists them all. Returns {matched, skills: [{name, description, from}]}: `from` names the " +
-			"conversations a skill came from.",
-		Type.Object({ query: Type.String() }, { additionalProperties: false }),
-		async ({ query }, { api, context }) => {
+			"lists them all. Returns {matched, skills: [{name, description, from}], next?}: `from` " +
+			"names the conversations a skill came from. At most 20 skills a call, by name; when " +
+			"`next` is there, pass it as `offset` for the following ones, or narrow the query.",
+		Type.Object(
+			{
+				query: Type.String(),
+				offset: Type.Optional(Type.Integer({ minimum: 0 })),
+			},
+			{ additionalProperties: false },
+		),
+		async ({ query, offset = 0 }, { api, context }) => {
 			if (api.conversationId !== ROOT_CONVERSATION_ID)
 				throw new Error(NOT_KEPT);
 			const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-			const found = Object.fromEntries(
-				Object.entries(await readSkills(api, context)).filter(
-					([name, skill]) => {
-						const about =
-							`${name} ${skill.description} ${skill.body}`.toLowerCase();
-						return words.every((word) => about.includes(word));
-					},
-				),
-			);
-			const from = await sources(api, context, found);
+			const found = Object.entries(await readSkills(api, context))
+				.filter(([name, skill]) => {
+					const about =
+						`${name} ${skill.description} ${skill.body}`.toLowerCase();
+					return words.every((word) => about.includes(word));
+				})
+				.sort(([a], [b]) => a.localeCompare(b));
+			const page = found.slice(offset, offset + PAGE);
+			const from = await sources(api, context, Object.fromEntries(page));
 			return {
-				matched: Object.keys(found).length,
-				skills: Object.entries(found)
-					.sort(([a], [b]) => a.localeCompare(b))
-					.map(([name, skill]) => ({
-						name,
-						description: skill.description,
-						from: from.get(name),
-					})),
+				matched: found.length,
+				skills: page.map(([name, skill]) => ({
+					name,
+					description: skill.description,
+					from: from.get(name),
+				})),
+				...(offset + PAGE < found.length && { next: offset + PAGE }),
 			};
 		},
 	),
