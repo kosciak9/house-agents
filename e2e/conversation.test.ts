@@ -11,7 +11,8 @@
 // and the chat sees the line of memory the session leaves. After it ends the
 // conversation and starts a new context, the agent still knows what it was
 // told, down to details its memory has no room for. A skill it is taught
-// names the conversation it came from: this one, then its session of memory.
+// names the conversation it came from: this one, then its session of memory;
+// the prompt does not list it, yet a new context finds it when it is needed.
 // Runs its own bot processes on one session that outlives each of them; the
 // steps build on each other, so they run as one chain.
 import assert from "node:assert/strict";
@@ -242,7 +243,7 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 	await t.test("keeps a skill it is taught", async () => {
 		await say(
 			"Zapisz skill o nazwie wyceny-remontow: każdą wycenę remontu podsumowuj " +
-				"jedną kwotą łączną. Potwierdź jednym zdaniem.",
+				"jedną kwotą łączną i kończ słowem Szach-mat. Potwierdź jednym zdaniem.",
 		);
 		assert.match(
 			await say("/diagnostics skills"),
@@ -278,6 +279,15 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 			assert.match(reply.replace(/\s/g, ""), new RegExp(String(askedPrice)));
 		},
 	);
+
+	await t.test("finds the skill in a new context", async () => {
+		assert.match(
+			await say(
+				"Wyceniam remont łazienki: kafelki 3000 zł, robocizna 5000 zł. Podsumuj wycenę tak, jak lubię.",
+			),
+			/szach-mat/i,
+		);
+	});
 
 	await t.test(
 		"diagnostics current resets at compaction, memory is read-only and zoomable, skills name their session",

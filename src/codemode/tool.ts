@@ -2,13 +2,14 @@ import { type ImageContent, Type as ToolType } from "@earendil-works/pi-ai";
 import {
 	CodemodeSandbox,
 	type CodemodeTool,
+	type CodemodeToolContext,
 	MCP_TYPESCRIPT_PREAMBLE,
 	renderDeclarations,
 } from "@earendil-works/pi-codemode";
 import { defineTool } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 
-import { localTool } from "./local-tool.ts";
+import { type LocalToolContext, localTool } from "./local-tool.ts";
 
 // Substantial file editing and other jobs can run in a background general subagent.
 const TIMEOUT_MS = 30 * 60_000;
@@ -107,9 +108,16 @@ export const createCodemodeTool = (tools: readonly CodemodeTool[]) => {
 		parameters: ToolType.Object({
 			code: ToolType.String({ description: "The script." }),
 		}),
-		execute: async ({ code }, _api, context) => {
+		execute: async ({ code }, api, context) => {
 			const sandbox = new CodemodeSandbox({
-				tools: [...tools, search],
+				// Local tools run with this call's api and context (`LocalToolContext`).
+				tools: [...tools, search].map((tool) => ({
+					...tool,
+					execute: (args: unknown, call: CodemodeToolContext) => {
+						const local: LocalToolContext = { ...call, api, context };
+						return tool.execute(args, local);
+					},
+				})),
 				timeoutMs: TIMEOUT_MS,
 			});
 			try {
