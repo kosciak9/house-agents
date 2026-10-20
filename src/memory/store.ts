@@ -118,6 +118,8 @@ export const formatSummary = (
 ): string => `${formatBlock(block)} ${dates(span.start, span.end)} ${summary}`;
 
 export type MemoryReader = {
+	/** `MEMORY_FORMAT` of what was read; work from an older one is not stored. */
+	readonly format: number;
 	readonly count: number;
 	readonly levels: Levels;
 	readonly queue: readonly SessionRange[];
@@ -172,6 +174,7 @@ export const openMemory = async (
 	};
 
 	return {
+		format: index.format ?? 1,
 		count: index.count,
 		levels: index.levels,
 		queue: index.queue,

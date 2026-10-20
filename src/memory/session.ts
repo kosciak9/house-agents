@@ -151,8 +151,8 @@ export const compact = async (
 
 /**
  * Writes a memory kept in an older `MEMORY_FORMAT` again, from its sessions'
- * transcripts. Put off to a later start while a writer is live, so none
- * mixes the two formats.
+ * transcripts. Writers still live go on with the new queue; what they wrote
+ * from the old memory is not stored.
  */
 export const rewriteOutdated = async (
 	conversation: Conversation,
@@ -162,11 +162,9 @@ export const rewriteOutdated = async (
 	await conversation.commit(async (tx) => {
 		const index = await tx.doc(MemoryIndex);
 		if ((index.format ?? 1) >= MEMORY_FORMAT) return;
-		const live =
-			(await isLive(tx, index.sessionTaskId)) || (await napTaskLive(tx));
-		if (live) return;
+		const live = await isLive(tx, index.sessionTaskId);
 		await clearMemory(tx);
-		await ensureSessionTask(tx, model, false);
+		await ensureSessionTask(tx, model, live);
 	}, context);
 };
 
@@ -254,7 +252,9 @@ export const SessionTask = defineTask<SessionInput, SessionState, null>({
 					);
 				}
 				const current = await tx.doc(MemoryIndex);
-				for (let i = 0; i < done; i++) {
+				// Written before the memory was rewritten: the new queue starts over.
+				const stale = (current.format ?? 1) !== (index?.format ?? 1);
+				for (let i = 0; i < (stale ? 0 : done); i++) {
 					const range = batch[i];
 					if (!sameRange(current.queue[0], range)) break;
 					const answer = answers[i];

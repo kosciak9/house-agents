@@ -165,6 +165,10 @@ export const NapTask = defineTask<NapInput, NapState, null>({
 			}
 
 			await runtime.commit(async (tx) => {
+				// Merged from a memory since rewritten: start over from the new one.
+				if (((await tx.doc(MemoryIndex)).format ?? 1) !== memory.format) {
+					return continueOrFinish(tx, task.id, { ...next, merged });
+				}
 				for (const answer of answers) {
 					await recordModelUsage(
 						tx,
