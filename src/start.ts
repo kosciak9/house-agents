@@ -27,6 +27,7 @@ await refreshGeneralSubagents({ harness, registry }, BACKGROUND_CONTEXT);
 // the last shutdown still reach the chat.
 harness.resume();
 
+await memory.upgrade(root, BACKGROUND_CONTEXT);
 await compactWhenDue({
 	harness,
 	conversation: root,

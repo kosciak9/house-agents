@@ -14,9 +14,12 @@ import { type Block, formatBlock, type Levels } from "./tree.ts";
 // Session documents. Leaves and summaries are stored in fixed-size pages, so
 // adding one never rewrites the whole log.
 
-/** One past session of the main conversation, summarized in one line. */
+/** One topic of a past session of the main conversation, in one line. */
 type StoredLeaf = {
-	/** Hard to guess, so the agent reaches a session only by zooming to it. */
+	/**
+	 * Shared by the lines of one session. Hard to guess, so the agent reaches
+	 * a session only by zooming to it.
+	 */
 	session: string;
 	/** Its transcript entries, inclusive. */
 	from: number;
@@ -34,13 +37,23 @@ export type SessionRange = { from: number; to: number };
 
 const PAGE_SIZE = 256;
 
+/**
+ * How sessions become lines. A memory written the older way is written again
+ * from its transcripts (`rewriteOutdated`).
+ */
+export const MEMORY_FORMAT = 2;
+
 export type MemoryIndexState = {
+	/** `MEMORY_FORMAT` the leaves were written in; absent before the first. */
+	format?: number;
 	/** Leaves so far; the next one gets this id. */
 	count: number;
 	/** Summaries written per block size; each level is a dense prefix. */
 	levels: Record<string, number>;
 	/** Last transcript entry already handed to a session. */
 	closedTo: number;
+	/** Last transcript entry of the sessions being written again; they are not announced. */
+	rewrittenTo?: number;
 	/** Ended sessions waiting for their leaf, oldest first. */
 	queue: SessionRange[];
 	/** The task writing leaves, while one may still be live. */
@@ -54,6 +67,7 @@ export const MemoryIndex = defineDoc<MemoryIndexState>({
 	version: 1,
 	scope: "session",
 	initial: () => ({
+		format: MEMORY_FORMAT,
 		count: 0,
 		levels: {},
 		closedTo: 0,
@@ -177,21 +191,54 @@ export const openMemory = async (
 	};
 };
 
-/** Appends the leaf of a session in `tx`. */
-export const appendLeaf = async (
+/** Appends the lines of one session in `tx`, one leaf each, under one id. */
+export const appendLeaves = async (
 	tx: Tx,
-	leaf: Omit<StoredLeaf, "session">,
-): Promise<Leaf> => {
+	session: Omit<StoredLeaf, "session" | "text">,
+	lines: readonly string[],
+): Promise<Leaf[]> => {
 	const index = await tx.doc(MemoryIndex);
-	const id = index.count;
-	const session = createHash("sha256")
-		.update(`${id}:${leaf.from}:${leaf.to}`)
+	const first = index.count;
+	const id = createHash("sha256")
+		.update(`${first}:${session.from}:${session.to}`)
 		.digest("hex")
 		.slice(0, 8);
-	const stored = { session, ...leaf };
-	(await tx.doc(LeafPages, leafPage(id), null)).leaves.push(stored);
-	index.count = id + 1;
-	return { id, ...stored };
+	const added: Leaf[] = [];
+	for (const text of lines) {
+		const stored = { session: id, ...session, text };
+		(await tx.doc(LeafPages, leafPage(index.count), null)).leaves.push(stored);
+		added.push({ id: index.count, ...stored });
+		index.count += 1;
+	}
+	return added;
+};
+
+/**
+ * Empties the memory in `tx` and queues every session it held, to be written
+ * again in `MEMORY_FORMAT`. Skills follow, as they point at transcript
+ * entries, not at lines.
+ */
+export const clearMemory = async (tx: Tx): Promise<void> => {
+	const index = await tx.doc(MemoryIndex);
+	const sessions: SessionRange[] = [];
+	for (let page = 0; page * PAGE_SIZE < index.count; page++) {
+		const doc = await tx.doc(LeafPages, String(page), null);
+		for (const { from, to } of doc.leaves) {
+			const last = sessions.at(-1);
+			if (last?.from !== from || last.to !== to) sessions.push({ from, to });
+		}
+		doc.leaves = [];
+	}
+	for (const [size, done] of Object.entries(index.levels)) {
+		for (let page = 0; page * PAGE_SIZE < done; page++) {
+			(await tx.doc(SummaryPages, `${size}:${page}`, null)).summaries = [];
+		}
+	}
+	index.format = MEMORY_FORMAT;
+	index.count = 0;
+	index.levels = {};
+	index.rewrittenTo = sessions.at(-1)?.to ?? 0;
+	index.queue = [...sessions, ...index.queue];
 };
 
 /**

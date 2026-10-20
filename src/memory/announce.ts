@@ -1,13 +1,16 @@
 import type { Leaf } from "./store.ts";
 
-// Who hears of each new line of memory, e.g. the chat; the memory itself
-// depends on no channel.
+// Who hears of the lines of memory each session leaves, e.g. the chat; the
+// memory itself depends on no channel.
 
-let listener: ((leaf: Leaf) => void) | undefined;
+let listener: ((leaves: readonly Leaf[]) => void) | undefined;
 
-export const onLeaf = (callback: (leaf: Leaf) => void): void => {
+export const onSession = (
+	callback: (leaves: readonly Leaf[]) => void,
+): void => {
 	listener = callback;
 };
 
-/** Called once the leaf is committed. */
-export const announceLeaf = (leaf: Leaf): void => listener?.(leaf);
+/** Called once the lines of a session are committed. */
+export const announceSession = (leaves: readonly Leaf[]): void =>
+	listener?.(leaves);

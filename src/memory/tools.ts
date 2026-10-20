@@ -15,7 +15,7 @@ import { zoomLines } from "./wake.ts";
 
 const ASK_SYSTEM_PROMPT =
 	"You answer a personal assistant's question about one of its past conversations with its user. " +
-	"The assistant remembers only a one-line summary; you are given the full conversation. " +
+	"The assistant remembers only a few short lines of it; you are given the full conversation. " +
 	"Answer in the language of the question. Give everything relevant: the exact facts, numbers, " +
 	"names, dates and wording, and what surrounds them: what led to it, what was decided and why, " +
 	"alternatives considered, what stayed open. Say when the answer is uncertain or the conversation " +
@@ -38,8 +38,8 @@ export const memoryZoomTool = defineTool({
 	name: "memory_zoom",
 
 	description:
-		"Open a line `#a-b` of your memory into its two halves: two finer lines, or two " +
-		"past conversations `[session]`. Zoom until you reach the conversation you need.",
+		"Open a line `#a-b` of your memory into its two halves: finer lines, down to the " +
+		"topics of past conversations `[session]`. Zoom until you reach the conversation you need.",
 
 	parameters: Type.Object({
 		block: Type.String({ description: "The line to open, as shown: #16-31" }),

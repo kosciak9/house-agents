@@ -11,25 +11,30 @@ import {
 } from "@earendil-works/pi-durable";
 
 import { recordModelUsage } from "../agent/usage.ts";
-import { announceLeaf } from "./announce.ts";
-import { askLine } from "./llm.ts";
+import { announceSession } from "./announce.ts";
+import { askLines } from "./llm.ts";
 import { backoffMs, ensureNapTask, isLive, napTaskLive } from "./nap.ts";
 import {
-	appendLeaf,
+	appendLeaves,
+	clearMemory,
 	type Leaf,
+	MEMORY_FORMAT,
 	MemoryIndex,
 	type SessionRange,
 } from "./store.ts";
 import { readTranscript, type Transcript } from "./transcript.ts";
-import { ENTRY_BYTES } from "./tree.ts";
+import { ENTRY_CHARS } from "./tree.ts";
 
 // A session is one context of the main conversation, from one compaction
-// to the next. When it ends, the small model reads it whole and writes its leaf: the
-// one line of memory the agent keeps of it. Nothing depends on the agent
-// remembering to take notes.
+// to the next. When it ends, the small model reads it whole and writes its
+// leaves: one line of memory per topic, all leading back to it. Nothing
+// depends on the agent remembering to take notes.
 
 /** The most of a session the model reads (~750k tokens); the middle is cut first. */
 const MAX_TRANSCRIPT_CHARS = 2_500_000;
+
+/** Lines one session may leave: a busy day holds many topics. */
+const MAX_SESSION_LINES = 12;
 
 type SessionInput = { model: ModelRef };
 
@@ -38,18 +43,25 @@ type SessionState =
 	| { phase: "backoff"; written: number; attempt: number; until: number };
 
 const SYSTEM_PROMPT =
-	"You keep the long-term memory of a personal assistant: one line per past " +
-	"conversation with its user.";
+	"You keep the long-term memory of a personal assistant: one line per topic of " +
+	"each past conversation with its user.";
 
 const sessionPrompt = (transcript: string): string =>
 	[
-		`Summarize this conversation of the assistant with its user in one line of at most ${ENTRY_BYTES} bytes, ` +
-			"for the assistant to recall it months later.",
-		"Keep what has lasting effect: facts about the user and their life (people, places, plans, " +
-			"preferences, possessions), what they asked to remember, decisions, tasks done and their results. " +
-			"Name the specifics that identify each topic (names, places, numbers), so the line leads back to " +
-			"the conversation, which keeps the full detail. Drop small talk. Invent nothing. Leave out dates; " +
-			"they are added for you. Write in the language of the conversation. Reply with the line alone.",
+		`Write the long-term memory of this conversation of the assistant with its user: one line per topic, ` +
+			`at most ${MAX_SESSION_LINES} lines of at most ${ENTRY_CHARS} characters each, for the assistant to recall it months later.`,
+		"The assistant finds a past conversation only through these lines: what they leave out is lost " +
+			"for good, while a topic named even in a few words leads back to the conversation, which keeps " +
+			"the full detail. So give every topic with lasting effect a line, a minor one included, rather " +
+			"than drop it; join small related topics when there are more than lines.",
+		"Keep, most valuable first, also within a line: what the user asked for, decided or wants remembered, close to their " +
+			"words; facts about the user and their life (people, places, plans, preferences, possessions); " +
+			"work the assistant took on and where it stands (monitoring, schedules, follow-ups, open " +
+			"questions); results. Copy the specifics that identify each topic exactly: names, places, " +
+			"numbers, dates of plans. Never make anything look further along than it was.",
+		"Drop small talk and routine checks that found nothing. Invent nothing. Leave out when the " +
+			"conversation took place; it is added for you. Write in the language of the conversation. " +
+			"Reply with the lines alone, one per line, without bullets or numbers.",
 		"",
 		"<conversation>",
 		transcript,
@@ -135,6 +147,27 @@ export const compact = async (
 	}
 };
 
+/**
+ * Writes a memory kept in an older `MEMORY_FORMAT` again, from its sessions'
+ * transcripts. Put off to a later start while a writer is live, so none
+ * mixes the two formats.
+ */
+export const rewriteOutdated = async (
+	conversation: Conversation,
+	model: ModelRef,
+	context: Context,
+): Promise<void> => {
+	await conversation.commit(async (tx) => {
+		const index = await tx.doc(MemoryIndex);
+		if ((index.format ?? 1) >= MEMORY_FORMAT) return;
+		const live =
+			(await isLive(tx, index.sessionTaskId)) || (await napTaskLive(tx));
+		if (live) return;
+		await clearMemory(tx);
+		await ensureSessionTask(tx, model, false);
+	}, context);
+};
+
 const sameRange = (a: SessionRange | undefined, b: SessionRange) =>
 	a !== undefined && a.from === b.from && a.to === b.to;
 
@@ -184,19 +217,24 @@ export const SessionTask = defineTask<SessionInput, SessionState, null>({
 			const answer =
 				transcript.text.length === 0
 					? undefined
-					: await askLine(runtime.models, task.input.model, {
-							system: SYSTEM_PROMPT,
-							prompt: sessionPrompt(fit(transcript.text)),
-							signal: runtime.signal,
-						});
+					: await askLines(
+							runtime.models,
+							task.input.model,
+							{
+								system: SYSTEM_PROMPT,
+								prompt: sessionPrompt(fit(transcript.text)),
+								signal: runtime.signal,
+							},
+							MAX_SESSION_LINES,
+						);
 			runtime.signal.throwIfAborted();
 			if (answer?.ok === false) {
 				runtime.report(new Error(`Session summary failed: ${answer.error}`));
 			}
 
-			let added: Leaf | undefined;
+			let added: Leaf[] = [];
 			await runtime.commit(async (tx) => {
-				added = undefined;
+				added = [];
 				const napLive = await napTaskLive(tx);
 				await recordModelUsage(
 					tx,
@@ -217,20 +255,26 @@ export const SessionTask = defineTask<SessionInput, SessionState, null>({
 				const current = await tx.doc(MemoryIndex);
 				if (sameRange(current.queue[0], range)) {
 					if (answer?.ok) {
-						added = await appendLeaf(tx, {
-							from: range.from,
-							to: range.to,
-							start: transcript.start ?? "",
-							end: transcript.end ?? "",
-							text: answer.text,
-						});
+						added = await appendLeaves(
+							tx,
+							{
+								from: range.from,
+								to: range.to,
+								start: transcript.start ?? "",
+								end: transcript.end ?? "",
+							},
+							answer.lines,
+						);
 						await ensureNapTask(tx, task.input.model, napLive);
 					}
 					current.queue.shift();
 				}
 				return continueOrFinish(tx, task.id, next);
 			}, context);
-			if (added !== undefined) announceLeaf(added);
+			// A session written again was announced when it ended.
+			if (added.length > 0 && range.to > (index?.rewrittenTo ?? 0)) {
+				announceSession(added);
+			}
 		},
 
 		backoff: async (task, runtime, context) => {

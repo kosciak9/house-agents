@@ -7,7 +7,7 @@ import {
 } from "@earendil-works/pi-durable";
 
 import { recordModelUsage } from "../agent/usage.ts";
-import { askLine } from "./llm.ts";
+import { askLines } from "./llm.ts";
 import {
 	formatLeaf,
 	formatSummary,
@@ -16,7 +16,7 @@ import {
 	openMemory,
 	putSummary,
 } from "./store.ts";
-import { type Block, ENTRY_BYTES, nextPending } from "./tree.ts";
+import { type Block, ENTRY_CHARS, nextPending } from "./tree.ts";
 
 // Merging runs in the background, in code: whenever two lines of a level
 // exist, they are merged into one line of the level above. One task at a time
@@ -30,8 +30,8 @@ type NapState =
 	| { phase: "backoff"; merged: number; attempt: number; until: number };
 
 const SYSTEM_PROMPT =
-	"You keep the long-term memory of a personal assistant: one line per past " +
-	"conversation with its user, and lines merging two neighbouring lines into one.";
+	"You keep the long-term memory of a personal assistant: one line per topic of " +
+	"each past conversation with its user, and lines merging two neighbouring lines into one.";
 
 export const backoffMs = (attempt: number): number =>
 	Math.min(60 * 60 * 1000, 60 * 1000 * 2 ** (attempt - 1));
@@ -107,10 +107,14 @@ const halves = async (
 
 const mergePrompt = (lines: readonly string[]): string =>
 	[
-		`Merge these two lines of memory into one line of at most ${ENTRY_BYTES} bytes.`,
-		"Keep what has lasting effect: facts about the user and their life, decisions, " +
-			"results, plans. Drop what does not. Invent nothing. Leave out ids and dates; " +
-			"they are added for you. Write in the language of the lines. Reply with the line alone.",
+		`Merge these two lines of memory into one line of at most ${ENTRY_CHARS} characters.`,
+		"The assistant finds a past conversation only by zooming through such lines: a topic " +
+			"the merged line leaves out cannot be found again, while one named in a word or two " +
+			"still leads to it. So name more topics briefly rather than fewer in detail. Keep what " +
+			"has lasting effect: facts about the user and their life, decisions, plans and work " +
+			"still open; drop first what is finished or routine. Invent nothing. Leave out ids and " +
+			"when the conversations took place; they are added for you. Write in the language of " +
+			"the lines. Reply with the line alone.",
 		"",
 		...lines,
 	].join("\n");
@@ -135,11 +139,16 @@ export const NapTask = defineTask<NapInput, NapState, null>({
 				return;
 			}
 
-			const answer = await askLine(runtime.models, task.input.model, {
-				system: SYSTEM_PROMPT,
-				prompt: mergePrompt(await halves(memory, block)),
-				signal: runtime.signal,
-			});
+			const answer = await askLines(
+				runtime.models,
+				task.input.model,
+				{
+					system: SYSTEM_PROMPT,
+					prompt: mergePrompt(await halves(memory, block)),
+					signal: runtime.signal,
+				},
+				1,
+			);
 			runtime.signal.throwIfAborted();
 			if (!answer.ok) {
 				runtime.report(new Error(`Memory merge failed: ${answer.error}`));
@@ -162,7 +171,7 @@ export const NapTask = defineTask<NapInput, NapState, null>({
 						},
 					};
 				}
-				await putSummary(tx, block, answer.text);
+				await putSummary(tx, block, answer.lines[0]);
 				return continueOrFinish(tx, task.id, next);
 			}, context);
 		},

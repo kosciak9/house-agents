@@ -8,7 +8,8 @@
 // the chat hears so, and the fallback model answers in its place from then
 // on. Commands answer at once, even while the agent works on a message. The
 // chat's menu offers /compact, which says when it starts and when it is done,
-// and the chat sees the line of memory the session leaves. After it ends the
+// and the chat sees the lines of memory the session leaves, merged in the
+// background. After it ends the
 // conversation and starts a new context, the agent still knows what it was
 // told, down to details its memory has no room for. A skill it is taught
 // names the conversation it came from: this one, then its session of memory;
@@ -99,6 +100,16 @@ const say = (text: string) =>
 		matches: isNotTick,
 		timeoutMs: 2 * MINUTE,
 	});
+
+// The memory writes and merges its lines in the background, at a cost.
+const settledMemory = async (): Promise<string> => {
+	for (let attempt = 0; attempt < 60; attempt++) {
+		const memory = await say("/diagnostics memory");
+		if (!memory.includes("Oczekuje na")) return memory;
+		await new Promise((resolve) => setTimeout(resolve, 2000));
+	}
+	assert.fail("The memory did not settle within two minutes");
+};
 
 before(async () => {
 	runningBot = await startBot({ stateDir: directory, prompt: PROMPT });
@@ -292,11 +303,11 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 	await t.test(
 		"diagnostics current resets at compaction, memory is read-only and zoomable, skills name their session",
 		async () => {
+			const memory = await settledMemory();
 			const usage = await say("/diagnostics usage");
 			const current = await say("/diagnostics current");
 			assert.ok(usedTokens(current) > 0);
 			assert.ok(usedTokens(current) < usedTokens(usage));
-			const memory = await say("/diagnostics memory");
 			assert.match(memory, /Pamięć — 1 zakończonych sesji/);
 			const leaf = /\[[0-9a-f]{8}\] [^\n]+/.exec(memory)?.[0];
 			assert.ok(leaf, `Missing saved memory in: ${memory}`);

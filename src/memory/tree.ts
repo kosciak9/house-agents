@@ -9,6 +9,9 @@ export type Block = { lo: number; hi: number };
 /** Longest leaf or summary, in UTF-8 bytes. */
 export const ENTRY_BYTES = 280;
 
+/** Characters to ask a model for: it counts those, and a non-ASCII one takes more bytes. */
+export const ENTRY_CHARS = 220;
+
 /** How many blocks of each size are summarized, keyed by size. */
 export type Levels = Readonly<Record<string, number>>;
 
@@ -118,6 +121,15 @@ export const nextPending = (
 		}
 	}
 	return undefined;
+};
+
+/** Blocks complete but not summarized yet, at every level. */
+export const pendingCount = (count: number, levels: Levels): number => {
+	let pending = 0;
+	for (let size = 2; size <= count; size *= 2) {
+		pending += Math.floor(count / size) - (levels[size] ?? 0);
+	}
+	return pending;
 };
 
 export const isSummarized = (block: Block, levels: Levels): boolean =>

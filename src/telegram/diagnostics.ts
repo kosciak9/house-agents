@@ -13,7 +13,7 @@ import { toolName } from "../mcp/client.ts";
 import type { Mcp } from "../mcp/start.ts";
 import { skillLines, skillText } from "../memory/skills.ts";
 import { openMemory } from "../memory/store.ts";
-import { parseBlock } from "../memory/tree.ts";
+import { parseBlock, pendingCount } from "../memory/tree.ts";
 import { memoryLines, zoomLines } from "../memory/wake.ts";
 import { subagents } from "../subagents/config.ts";
 import { usageText } from "./usage.ts";
@@ -96,14 +96,19 @@ const showMemory = async (ctx: Context, address: string): Promise<void> => {
 	const lines = block
 		? await zoomLines(memory, block)
 		: await memoryLines(memory);
+	const sessions = new Set(
+		(await memory.leaves(0, memory.count)).map((leaf) => leaf.session),
+	).size;
+	const merging = pendingCount(memory.count, memory.levels);
 	await replyText(
 		ctx,
 		[
-			`Pamięć — ${memory.count} zakończonych sesji`,
+			`Pamięć — ${sessions} zakończonych sesji, ${memory.count} linii`,
 			"Aktualny zapis, w układzie czytanym przez agenta. Podgląd nie trafia do modelu.",
 			...(memory.queue.length > 0
 				? [`Oczekuje na zapis: ${memory.queue.length} sesji.`]
 				: []),
+			...(merging > 0 ? [`Oczekuje na scalenie: ${merging} linii.`] : []),
 			"",
 			...(lines.length > 0 ? lines : ["Pamięć jest pusta."]),
 			"",

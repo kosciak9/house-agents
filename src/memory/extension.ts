@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-durable";
 
 import { NapTask } from "./nap.ts";
-import { compact, SessionTask } from "./session.ts";
+import { compact, rewriteOutdated, SessionTask } from "./session.ts";
 import { SKILLS_NOTE } from "./skills.ts";
 import { createMemoryAskTool, keepsMemory, memoryZoomTool } from "./tools.ts";
 import { renderWake } from "./wake.ts";
@@ -17,8 +17,8 @@ const SECTION = "memory";
 
 // Long-term memory after OptMem (github.com/VictorTaelin/OptMem), kept by code
 // instead of asked for in the prompt. The main conversation runs in sessions;
-// each one that ends becomes one line of memory, written by `model`, and
-// pairs of lines merge upwards into a binary tree. The agent reads the tree in
+// each one that ends becomes a line of memory per topic, written by `model`,
+// and pairs of lines merge upwards into a binary tree. The agent reads the tree in
 // its system prompt, zooms down to a past session and asks `model` about its
 // full transcript. It never takes notes itself; it keeps skills (codemode's
 // `skillTools`), each tied by code to the conversations it compresses.
@@ -50,7 +50,11 @@ export const createMemory = ({
 		tasks: [SessionTask, NapTask],
 	}),
 
-	/** Compacts the conversation: its session gets its line of memory and a new context starts. */
+	/** Compacts the conversation: its session gets its lines of memory and a new context starts. */
 	compact: (conversation: Conversation, context: Context) =>
 		compact(conversation, model, context),
+
+	/** On start: a memory written in an older format is written again. */
+	upgrade: (conversation: Conversation, context: Context) =>
+		rewriteOutdated(conversation, model, context),
 });
