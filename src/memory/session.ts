@@ -12,7 +12,7 @@ import {
 
 import { recordModelUsage } from "../agent/usage.ts";
 import { announceSession } from "./announce.ts";
-import { askLines } from "./llm.ts";
+import { askLines, type Lines, PARALLEL_CALLS } from "./llm.ts";
 import { backoffMs, ensureNapTask, isLive, napTaskLive } from "./nap.ts";
 import {
 	appendLeaves,
@@ -34,7 +34,7 @@ import { ENTRY_CHARS } from "./tree.ts";
 const MAX_TRANSCRIPT_CHARS = 2_500_000;
 
 /** Lines one session may leave: a busy day holds many topics. */
-const MAX_SESSION_LINES = 12;
+const MAX_SESSION_LINES = 16;
 
 type SessionInput = { model: ModelRef };
 
@@ -59,7 +59,9 @@ const sessionPrompt = (transcript: string): string =>
 			"work the assistant took on and where it stands (monitoring, schedules, follow-ups, open " +
 			"questions); results. Copy the specifics that identify each topic exactly: names, places, " +
 			"numbers, dates of plans. Never make anything look further along than it was.",
-		"Drop small talk and routine checks that found nothing. Invent nothing. Leave out when the " +
+		"Of recurring work (monitoring, scheduled checks) keep the latest result, numbers included, " +
+			"even when the user was not told of it: it is where that work stands. Drop small talk and " +
+			"runs that read nothing. Invent nothing. Leave out when the " +
 			"conversation took place; it is added for you. Write in the language of the conversation. " +
 			"Reply with the lines alone, one per line, without bullets or numbers.",
 		"",
@@ -192,88 +194,109 @@ export const SessionTask = defineTask<SessionInput, SessionState, null>({
 	phases: {
 		write: async (task, runtime, context) => {
 			const { written, attempt } = task.state.checkpoint;
-			const next: SessionState = {
-				phase: "write",
-				written: written + 1,
-				attempt: 1,
-			};
 			const index = await runtime.snapshot(MemoryIndex, context);
-			const range = index?.queue[0];
-			if (range === undefined) {
+			const batch = index?.queue.slice(0, PARALLEL_CALLS) ?? [];
+			if (batch.length === 0) {
 				await runtime.commit(
-					(tx) => continueOrFinish(tx, task.id, next),
+					(tx) =>
+						continueOrFinish(tx, task.id, { phase: "write", written, attempt }),
 					context,
 				);
 				return;
 			}
 
-			let transcript: Transcript = { text: "" };
+			const transcripts: Transcript[] = [];
 			await runtime.commit(async (tx) => {
-				transcript = await readTranscript(tx, range.from, range.to);
+				transcripts.length = 0;
+				for (const range of batch) {
+					transcripts.push(await readTranscript(tx, range.from, range.to));
+				}
 				return undefined;
 			}, context);
 
-			// A session where nothing was said leaves no line.
-			const answer =
-				transcript.text.length === 0
-					? undefined
-					: await askLines(
-							runtime.models,
-							task.input.model,
-							{
-								system: SYSTEM_PROMPT,
-								prompt: sessionPrompt(fit(transcript.text)),
-								signal: runtime.signal,
-							},
-							MAX_SESSION_LINES,
-						);
+			// Sessions are written side by side and kept in order. A session where
+			// nothing was said leaves no line.
+			const answers: (Lines | undefined)[] = await Promise.all(
+				transcripts.map((transcript) =>
+					transcript.text.length === 0
+						? undefined
+						: askLines(
+								runtime.models,
+								task.input.model,
+								{
+									system: SYSTEM_PROMPT,
+									prompt: sessionPrompt(fit(transcript.text)),
+									signal: runtime.signal,
+								},
+								MAX_SESSION_LINES,
+							),
+				),
+			);
 			runtime.signal.throwIfAborted();
-			if (answer?.ok === false) {
-				runtime.report(new Error(`Session summary failed: ${answer.error}`));
+			for (const answer of answers) {
+				if (answer?.ok === false) {
+					runtime.report(new Error(`Session summary failed: ${answer.error}`));
+				}
 			}
+			// A failed session and the ones after it wait for the retry.
+			const failed = answers.findIndex((answer) => answer?.ok === false);
+			const done = failed < 0 ? batch.length : failed;
 
-			let added: Leaf[] = [];
+			let added: Leaf[][] = [];
 			await runtime.commit(async (tx) => {
 				added = [];
 				const napLive = await napTaskLive(tx);
-				await recordModelUsage(
-					tx,
-					`${task.input.model.provider}/${task.input.model.modelId}`,
-					answer?.usage,
-				);
-				if (answer?.ok === false) {
+				for (const answer of answers) {
+					await recordModelUsage(
+						tx,
+						`${task.input.model.provider}/${task.input.model.modelId}`,
+						answer?.usage,
+					);
+				}
+				const current = await tx.doc(MemoryIndex);
+				for (let i = 0; i < done; i++) {
+					const range = batch[i];
+					if (!sameRange(current.queue[0], range)) break;
+					const answer = answers[i];
+					if (answer?.ok) {
+						added.push(
+							await appendLeaves(
+								tx,
+								{
+									from: range.from,
+									to: range.to,
+									start: transcripts[i].start ?? "",
+									end: transcripts[i].end ?? "",
+								},
+								answer.lines,
+							),
+						);
+					}
+					current.queue.shift();
+				}
+				if (added.length > 0) {
+					await ensureNapTask(tx, task.input.model, napLive);
+				}
+				if (failed >= 0) {
 					return {
 						status: "running",
 						checkpoint: {
 							phase: "backoff",
-							written,
+							written: written + done,
 							attempt,
 							until: runtime.now() + backoffMs(attempt),
 						},
 					};
 				}
-				const current = await tx.doc(MemoryIndex);
-				if (sameRange(current.queue[0], range)) {
-					if (answer?.ok) {
-						added = await appendLeaves(
-							tx,
-							{
-								from: range.from,
-								to: range.to,
-								start: transcript.start ?? "",
-								end: transcript.end ?? "",
-							},
-							answer.lines,
-						);
-						await ensureNapTask(tx, task.input.model, napLive);
-					}
-					current.queue.shift();
-				}
-				return continueOrFinish(tx, task.id, next);
+				return continueOrFinish(tx, task.id, {
+					phase: "write",
+					written: written + done,
+					attempt: 1,
+				});
 			}, context);
 			// A session written again was announced when it ended.
-			if (added.length > 0 && range.to > (index?.rewrittenTo ?? 0)) {
-				announceSession(added);
+			for (const leaves of added) {
+				if (leaves[0].to > (index?.rewrittenTo ?? 0)) announceSession(leaves);
 			}
 		},
 

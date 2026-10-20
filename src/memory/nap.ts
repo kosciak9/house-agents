@@ -7,7 +7,7 @@ import {
 } from "@earendil-works/pi-durable";
 
 import { recordModelUsage } from "../agent/usage.ts";
-import { askLines } from "./llm.ts";
+import { askLines, PARALLEL_CALLS } from "./llm.ts";
 import {
 	formatLeaf,
 	formatSummary,
@@ -16,12 +16,12 @@ import {
 	openMemory,
 	putSummary,
 } from "./store.ts";
-import { type Block, ENTRY_CHARS, nextPending } from "./tree.ts";
+import { type Block, ENTRY_CHARS, nextPending, readyBlocks } from "./tree.ts";
 
 // Merging runs in the background, in code: whenever two lines of a level
 // exist, they are merged into one line of the level above. One task at a time
-// works through every pending block, smallest first, and ends once none is
-// left.
+// works through every pending block, smallest first, merging the ready ones
+// side by side, and ends once none is left.
 
 type NapInput = { model: ModelRef };
 
@@ -128,10 +128,14 @@ export const NapTask = defineTask<NapInput, NapState, null>({
 	phases: {
 		merge: async (task, runtime, context: Context) => {
 			const { merged, attempt } = task.state.checkpoint;
-			const next: NapState = { phase: "merge", merged: merged + 1, attempt: 1 };
 			const memory = await openMemory(runtime, context);
-			const block = nextPending(memory.count, memory.levels);
-			if (block === undefined) {
+			const blocks = readyBlocks(memory.count, memory.levels, PARALLEL_CALLS);
+			const next: NapState = {
+				phase: "merge",
+				merged: merged + blocks.length,
+				attempt: 1,
+			};
+			if (blocks.length === 0) {
 				await runtime.commit(
 					(tx) => continueOrFinish(tx, task.id, next),
 					context,
@@ -139,28 +143,41 @@ export const NapTask = defineTask<NapInput, NapState, null>({
 				return;
 			}
 
-			const answer = await askLines(
-				runtime.models,
-				task.input.model,
-				{
-					system: SYSTEM_PROMPT,
-					prompt: mergePrompt(await halves(memory, block)),
-					signal: runtime.signal,
-				},
-				1,
+			const answers = await Promise.all(
+				blocks.map(async (block) =>
+					askLines(
+						runtime.models,
+						task.input.model,
+						{
+							system: SYSTEM_PROMPT,
+							prompt: mergePrompt(await halves(memory, block)),
+							signal: runtime.signal,
+						},
+						1,
+					),
+				),
 			);
 			runtime.signal.throwIfAborted();
-			if (!answer.ok) {
-				runtime.report(new Error(`Memory merge failed: ${answer.error}`));
+			for (const answer of answers) {
+				if (!answer.ok) {
+					runtime.report(new Error(`Memory merge failed: ${answer.error}`));
+				}
 			}
 
 			await runtime.commit(async (tx) => {
-				await recordModelUsage(
-					tx,
-					`${task.input.model.provider}/${task.input.model.modelId}`,
-					answer.usage,
-				);
-				if (!answer.ok) {
+				for (const answer of answers) {
+					await recordModelUsage(
+						tx,
+						`${task.input.model.provider}/${task.input.model.modelId}`,
+						answer.usage,
+					);
+				}
+				// In order: a level's block after a failed one is not stored.
+				for (const [i, block] of blocks.entries()) {
+					const answer = answers[i];
+					if (answer.ok) await putSummary(tx, block, answer.lines[0]);
+				}
+				if (answers.some((answer) => !answer.ok)) {
 					return {
 						status: "running",
 						checkpoint: {
@@ -171,7 +188,6 @@ export const NapTask = defineTask<NapInput, NapState, null>({
 						},
 					};
 				}
-				await putSummary(tx, block, answer.lines[0]);
 				return continueOrFinish(tx, task.id, next);
 			}, context);
 		},

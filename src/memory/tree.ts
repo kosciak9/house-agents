@@ -132,5 +132,30 @@ export const pendingCount = (count: number, levels: Levels): number => {
 	return pending;
 };
 
+/**
+ * Up to `max` blocks that can be summarized now, smallest first: the next of
+ * each level, whose halves are summarized already. Each level is stored in
+ * order, so they are kept as listed.
+ */
+export const readyBlocks = (
+	count: number,
+	levels: Levels,
+	max: number,
+): Block[] => {
+	const out: Block[] = [];
+	for (let size = 2; size <= count && out.length < max; size *= 2) {
+		const halves =
+			size === 2 ? Number.POSITIVE_INFINITY : (levels[size / 2] ?? 0);
+		for (
+			let k = levels[size] ?? 0;
+			k < Math.floor(count / size) && 2 * k + 1 < halves && out.length < max;
+			k++
+		) {
+			out.push({ lo: k * size, hi: (k + 1) * size });
+		}
+	}
+	return out;
+};
+
 export const isSummarized = (block: Block, levels: Levels): boolean =>
 	block.lo / (block.hi - block.lo) < (levels[block.hi - block.lo] ?? 0);

@@ -71,6 +71,9 @@ export type Lines =
 	| { ok: true; lines: string[]; usage: Usage }
 	| { ok: false; error: string; usage?: Usage };
 
+/** Memory calls run at once: a rewritten memory has many sessions and merges waiting. */
+export const PARALLEL_CALLS = 8;
+
 /** Attempts to shorten an overlong line before it is cut. */
 const SHORTEN_ATTEMPTS = 3;
 

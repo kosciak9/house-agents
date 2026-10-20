@@ -41,7 +41,7 @@ const PAGE_SIZE = 256;
  * How sessions become lines. A memory written the older way is written again
  * from its transcripts (`rewriteOutdated`).
  */
-export const MEMORY_FORMAT = 2;
+export const MEMORY_FORMAT = 3;
 
 export type MemoryIndexState = {
 	/** `MEMORY_FORMAT` the leaves were written in; absent before the first. */
