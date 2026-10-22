@@ -52,8 +52,6 @@ export type MemoryIndexState = {
 	levels: Record<string, number>;
 	/** Last transcript entry already handed to a session. */
 	closedTo: number;
-	/** Last transcript entry of the sessions being written again; they are not announced. */
-	rewrittenTo?: number;
 	/** Ended sessions waiting for their leaf, oldest first. */
 	queue: SessionRange[];
 	/** The task writing leaves, while one may still be live. */
@@ -199,21 +197,20 @@ export const appendLeaves = async (
 	tx: Tx,
 	session: Omit<StoredLeaf, "session" | "text">,
 	lines: readonly string[],
-): Promise<Leaf[]> => {
+): Promise<void> => {
 	const index = await tx.doc(MemoryIndex);
-	const first = index.count;
 	const id = createHash("sha256")
-		.update(`${first}:${session.from}:${session.to}`)
+		.update(`${index.count}:${session.from}:${session.to}`)
 		.digest("hex")
 		.slice(0, 8);
-	const added: Leaf[] = [];
 	for (const text of lines) {
-		const stored = { session: id, ...session, text };
-		(await tx.doc(LeafPages, leafPage(index.count), null)).leaves.push(stored);
-		added.push({ id: index.count, ...stored });
+		(await tx.doc(LeafPages, leafPage(index.count), null)).leaves.push({
+			session: id,
+			...session,
+			text,
+		});
 		index.count += 1;
 	}
-	return added;
 };
 
 /**
@@ -240,7 +237,6 @@ export const clearMemory = async (tx: Tx): Promise<void> => {
 	index.format = MEMORY_FORMAT;
 	index.count = 0;
 	index.levels = {};
-	index.rewrittenTo = sessions.at(-1)?.to ?? 0;
 	index.queue = [...sessions, ...index.queue];
 };
 

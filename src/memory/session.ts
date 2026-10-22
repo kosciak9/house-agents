@@ -11,13 +11,11 @@ import {
 } from "@earendil-works/pi-durable";
 
 import { recordModelUsage } from "../agent/usage.ts";
-import { announceSession } from "./announce.ts";
 import { askLines, type Lines, PARALLEL_CALLS } from "./llm.ts";
 import { backoffMs, ensureNapTask, isLive, napTaskLive } from "./nap.ts";
 import {
 	appendLeaves,
 	clearMemory,
-	type Leaf,
 	MEMORY_FORMAT,
 	MemoryIndex,
 	type SessionRange,
@@ -240,9 +238,8 @@ export const SessionTask = defineTask<SessionInput, SessionState, null>({
 			const failed = answers.findIndex((answer) => answer?.ok === false);
 			const done = failed < 0 ? batch.length : failed;
 
-			let added: Leaf[][] = [];
 			await runtime.commit(async (tx) => {
-				added = [];
+				let added = false;
 				const napLive = await napTaskLive(tx);
 				for (const answer of answers) {
 					await recordModelUsage(
@@ -259,22 +256,21 @@ export const SessionTask = defineTask<SessionInput, SessionState, null>({
 					if (!sameRange(current.queue[0], range)) break;
 					const answer = answers[i];
 					if (answer?.ok) {
-						added.push(
-							await appendLeaves(
-								tx,
-								{
-									from: range.from,
-									to: range.to,
-									start: transcripts[i].start ?? "",
-									end: transcripts[i].end ?? "",
-								},
-								answer.lines,
-							),
+						await appendLeaves(
+							tx,
+							{
+								from: range.from,
+								to: range.to,
+								start: transcripts[i].start ?? "",
+								end: transcripts[i].end ?? "",
+							},
+							answer.lines,
 						);
+						added = true;
 					}
 					current.queue.shift();
 				}
-				if (added.length > 0) {
+				if (added) {
 					await ensureNapTask(tx, task.input.model, napLive);
 				}
 				if (failed >= 0) {
@@ -294,10 +290,6 @@ export const SessionTask = defineTask<SessionInput, SessionState, null>({
 					attempt: 1,
 				});
 			}, context);
-			// A session written again was announced when it ended.
-			for (const leaves of added) {
-				if (leaves[0].to > (index?.rewrittenTo ?? 0)) announceSession(leaves);
-			}
 		},
 
 		backoff: async (task, runtime, context) => {

@@ -7,10 +7,9 @@
 // It comes back on a model that fails, xAI's, which E2E never logs in to:
 // the chat hears so, and the fallback model answers in its place from then
 // on. Commands answer at once, even while the agent works on a message. The
-// chat's menu offers /compact, which says when it starts and when it is done,
-// and the chat sees the lines of memory the session leaves, merged in the
-// background. After it ends the
-// conversation and starts a new context, the agent still knows what it was
+// chat's menu offers /compact, which says when it starts and when it is done;
+// the lines of memory the session leaves are merged in the background, without
+// a word to the chat. After it ends the conversation and starts a new context, the agent still knows what it was
 // told, down to details its memory has no room for. A skill it is taught
 // names the conversation it came from: this one, then its session of memory;
 // the prompt does not list it, yet a new context finds it when it is needed.
@@ -267,29 +266,22 @@ test("conversation: persona, voice, restart, fallback and compaction", {
 		assert.ok((await botCommands(client, bot)).includes("compact"));
 	});
 
-	await t.test(
-		"knows both in a new context, the chat sees its memory",
-		async () => {
-			const remembered = waitForBotMessage(client, bot, {
-				matches: (text) => text.startsWith("🧠"),
-				timeoutMs: 2 * MINUTE,
-			});
-			await sendAndWaitForReply(client, bot, "/compact", {
-				matches: (text) => /skompaktowana/i.test(text),
-				timeoutMs: MINUTE,
-			});
-			await remembered;
-			const reply = await sendAndWaitForReply(
-				client,
-				bot,
-				`Jak wabi się mój kot i ile Kafelek policzył za pozycję "${asked}"? ` +
-					"Odpowiedz w formacie: imię, kwota.",
-				{ matches: isNotTick, timeoutMs: 3 * MINUTE },
-			);
-			assert.match(reply, new RegExp(cat, "i"));
-			assert.match(reply.replace(/\s/g, ""), new RegExp(String(askedPrice)));
-		},
-	);
+	await t.test("knows both in a new context", async () => {
+		await sendAndWaitForReply(client, bot, "/compact", {
+			matches: (text) => /skompaktowana/i.test(text),
+			timeoutMs: MINUTE,
+		});
+		await settledMemory();
+		const reply = await sendAndWaitForReply(
+			client,
+			bot,
+			`Jak wabi się mój kot i ile Kafelek policzył za pozycję "${asked}"? ` +
+				"Odpowiedz w formacie: imię, kwota.",
+			{ matches: isNotTick, timeoutMs: 3 * MINUTE },
+		);
+		assert.match(reply, new RegExp(cat, "i"));
+		assert.match(reply.replace(/\s/g, ""), new RegExp(String(askedPrice)));
+	});
 
 	await t.test("finds the skill in a new context", async () => {
 		assert.match(
