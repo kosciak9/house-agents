@@ -10,6 +10,7 @@ import type { ReactionTypeEmoji } from "grammy/types";
 
 import { type Ending, endingOf } from "../endings/endings.ts";
 import { bot, chatId } from "./bot.ts";
+import { remember } from "./history.ts";
 import { takeReplyTarget } from "./reply-target.ts";
 
 const assistantText = (message: AssistantMessage): string =>
@@ -60,11 +61,15 @@ const deliver = async (ending: Ending): Promise<void> => {
 	// goes as a message.
 	if (ending.kind === "reaction") {
 		if (target !== undefined && (await react(target, ending.emoji))) return;
-		await bot.api.sendMessage(chatId, ending.emoji);
+		const sent = await bot.api.sendMessage(chatId, ending.emoji);
+		remember(sent.message_id, { from: "agent", text: ending.emoji });
 		return;
 	}
 
-	await bot.api.sendRichMessage(chatId, { markdown: ending.markdown });
+	const sent = await bot.api.sendRichMessage(chatId, {
+		markdown: ending.markdown,
+	});
+	remember(sent.message_id, { from: "agent", text: ending.markdown });
 };
 
 export const forwardAssistantMessages = async (

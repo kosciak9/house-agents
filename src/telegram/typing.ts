@@ -1,5 +1,3 @@
-import type { NextFunction } from "grammy";
-
 import { bot, chatId } from "./bot.ts";
 
 // Telegram shows "typing…" for five seconds, or until the bot sends a message.
@@ -13,15 +11,12 @@ const sendTyping = async (): Promise<void> => {
 	}
 };
 
-/** Shows "typing…" in the chat until the handlers after it are done. */
-export const showTyping = async (
-	_ctx: unknown,
-	next: NextFunction,
-): Promise<void> => {
+/** Shows "typing…" in the chat until `work` is done. */
+export const whileTyping = async (work: () => Promise<void>): Promise<void> => {
 	void sendTyping();
 	const refresh = setInterval(sendTyping, TYPING_REFRESH_MS);
 	try {
-		await next();
+		await work();
 	} finally {
 		clearInterval(refresh);
 	}

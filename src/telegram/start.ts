@@ -12,6 +12,7 @@ import {
 	handleCompactCommand,
 	handleDocumentMessage,
 	handlePhotoMessage,
+	handleReaction,
 	handleTextMessage,
 	handleVoiceMessage,
 } from "./inbound.ts";
@@ -29,8 +30,6 @@ import {
 	LOGIN_COMMAND,
 } from "./mcp.ts";
 import { forwardAssistantMessages } from "./outbound.ts";
-import { inTurn } from "./turns.ts";
-import { showTyping } from "./typing.ts";
 
 /**
  * Sends every answer of the conversation to the chat, a word whenever the
@@ -99,13 +98,12 @@ export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 		"message:text",
 		createLoginAnswer(mcp),
 		takeLoginAnswer,
-		inTurn,
-		showTyping,
 		handleTextMessage,
 	);
-	chat.on("message:photo", inTurn, showTyping, handlePhotoMessage);
-	chat.on("message:voice", inTurn, showTyping, handleVoiceMessage);
-	chat.on("message:document", inTurn, showTyping, handleDocumentMessage);
+	chat.on("message:photo", handlePhotoMessage);
+	chat.on("message:voice", handleVoiceMessage);
+	chat.on("message:document", handleDocumentMessage);
+	chat.on("message_reaction", handleReaction);
 	// Only the cause: the context it comes with holds the bot's token.
 	bot.catch(({ error, ctx }) => {
 		console.error(`Telegram error in update ${ctx.update.update_id}:`, error);
@@ -115,6 +113,8 @@ export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 		// In the test environment, messages sent while no bot was running belong
 		// to an earlier test and must not leak into the next one.
 		drop_pending_updates: environment === "test",
+		// Telegram sends reactions only to a bot that asks for them.
+		allowed_updates: ["message", "callback_query", "message_reaction"],
 		// E2E waits for this line to know the bot is ready.
 		onStart: (me) => console.log(`Bot @${me.username} started`),
 	});

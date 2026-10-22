@@ -5,6 +5,7 @@ import { Type } from "typebox";
 import { localTool } from "../codemode/local-tool.ts";
 import { getFile } from "../files/store.ts";
 import { bot, chatId } from "./bot.ts";
+import { remember } from "./history.ts";
 
 /** Telegram is an edge adapter: local file editing tools never import it. */
 export const telegramTools: readonly CodemodeTool[] = [
@@ -29,6 +30,10 @@ export const telegramTools: readonly CodemodeTool[] = [
 					// the native signal too (both expose the same cancellation protocol).
 					signal as Parameters<typeof bot.api.sendDocument>[3],
 				);
+				remember(sent.message_id, {
+					from: "agent",
+					text: caption ?? `(the file "${file.fileName}")`,
+				});
 				return {
 					fileId,
 					fileName: file.fileName,

@@ -528,3 +528,54 @@ export const sendVoiceAndWaitForReply = (
 		},
 		options,
 	);
+
+/** The id and text of the bot's newest message in the chat. */
+export const newestBotMessage = async (
+	client: tdl.Client,
+	bot: string,
+): Promise<{ id: number; text: string }> => {
+	const { messages } = await client.invoke({
+		_: "getChatHistory",
+		chat_id: await botChatId(client, bot),
+		from_message_id: 0,
+		offset: 0,
+		limit: 10,
+		only_local: false,
+	});
+	const message = messages.find((message) => message && !message.is_outgoing);
+	if (!message) throw new Error("The bot has sent no message");
+	return { id: message.id, text: messageText(message) };
+};
+
+/** Sends `text` to the bot as a reply to its message `messageId`. */
+export const replyToBot = async (
+	client: tdl.Client,
+	bot: string,
+	messageId: number,
+	text: string,
+): Promise<void> => {
+	await client.invoke({
+		_: "sendMessage",
+		chat_id: await botChatId(client, bot),
+		reply_to: { _: "inputMessageReplyToMessage", message_id: messageId },
+		input_message_content: {
+			_: "inputMessageText",
+			text: { _: "formattedText", text },
+		},
+	});
+};
+
+/** Reacts with `emoji` to the message `messageId` in the chat with the bot. */
+export const reactInBotChat = async (
+	client: tdl.Client,
+	bot: string,
+	messageId: number,
+	emoji: string,
+): Promise<void> => {
+	await client.invoke({
+		_: "addMessageReaction",
+		chat_id: await botChatId(client, bot),
+		message_id: messageId,
+		reaction_type: { _: "reactionTypeEmoji", emoji },
+	});
+};
