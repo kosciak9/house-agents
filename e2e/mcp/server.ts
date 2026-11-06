@@ -2,18 +2,22 @@
 // `listening on <port>`). `get_word` returns WORD and, with CALL_FILE, adds a
 // line there for every call; `get_picture` a PNG of the color PICTURE
 // (`r,g,b`), as an image only; `record_visit` appends to VISIT_FILE, so a
-// test can tell it was called.
+// test can tell it was called. With ATTACHMENT_DIR, `get_attachment` returns a
+// file of that directory as a binary resource, as mail servers return
+// attachments, and `receive_attachment` takes one as base64, as a draft
+// does, and answers with the size and SHA-256 it received.
 // It answers only requests with `Authorization: Bearer <API_KEY>`,
 // or, with OAUTH=1, with a token it issued as its own OAuth authorization
 // server, which approves every authorization at once.
 import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readdirSync, readFileSync } from "node:fs";
 import {
 	createServer,
 	type IncomingMessage,
 	type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
+import path from "node:path";
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -32,6 +36,11 @@ const requireEnv = (name: string): string => {
 
 const word = requireEnv("WORD");
 const visitFile = requireEnv("VISIT_FILE");
+const attachmentDir = process.env.ATTACHMENT_DIR;
+const MIME_TYPES: Record<string, string> = {
+	".pdf": "application/pdf",
+	".bin": "application/octet-stream",
+};
 
 const createMcpServer = (): Server => {
 	const server = new Server(
@@ -50,6 +59,28 @@ const createMcpServer = (): Server => {
 				name: "get_picture",
 				description: "Returns the picture of the day.",
 				inputSchema: { type: "object", properties: {} },
+			},
+			{
+				name: "get_attachment",
+				description: "Returns the named attachment as a binary resource.",
+				inputSchema: {
+					type: "object",
+					properties: { name: { type: "string" } },
+					required: ["name"],
+				},
+			},
+			{
+				name: "receive_attachment",
+				description: "Receives a file as base64 content.",
+				inputSchema: {
+					type: "object",
+					properties: {
+						filename: { type: "string" },
+						mime_type: { type: "string" },
+						content: { type: "string" },
+					},
+					required: ["filename", "mime_type", "content"],
+				},
 			},
 			{
 				name: "record_visit",
@@ -74,6 +105,41 @@ const createMcpServer = (): Server => {
 			// 512: gpt-6-luna calls a 256-pixel red square in a tool result black.
 			const data = solidPng(rgb, 512).toString("base64");
 			return { content: [{ type: "image", data, mimeType: "image/png" }] };
+		}
+		if (request.params.name === "get_attachment" && attachmentDir) {
+			const name = String(request.params.arguments?.name);
+			if (!readdirSync(attachmentDir).includes(name)) {
+				return {
+					content: [{ type: "text", text: "No such attachment" }],
+					isError: true,
+				};
+			}
+			const data = readFileSync(path.join(attachmentDir, name));
+			return {
+				content: [
+					{ type: "text", text: `Attachment ${name}:` },
+					{
+						type: "resource",
+						resource: {
+							uri: `attachment://${name}`,
+							mimeType: MIME_TYPES[path.extname(name)] ?? "",
+							blob: data.toString("base64"),
+						},
+						_meta: { filename: name, size: data.length },
+					},
+				],
+			};
+		}
+		if (request.params.name === "receive_attachment" && attachmentDir) {
+			const { filename, mime_type, content } = request.params.arguments ?? {};
+			const data = Buffer.from(String(content), "base64");
+			const received = {
+				filename,
+				mime_type,
+				size: data.length,
+				sha256: createHash("sha256").update(data).digest("hex"),
+			};
+			return { content: [{ type: "text", text: JSON.stringify(received) }] };
 		}
 		if (request.params.name === "record_visit") {
 			appendFileSync(visitFile, `${String(request.params.arguments?.name)}\n`);

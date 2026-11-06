@@ -15,7 +15,7 @@ const fileId = Type.String({ minLength: 1 });
 export const fileTools: readonly CodemodeTool[] = [
 	localTool(
 		"file_import",
-		"Store original bytes from an MCP attachment or create a text file in RAM. Returns {id, fileName, mimeType, size}; pass id as fileId to Office tools or delivery. Use encoding base64 for binary files, utf8 for Markdown, CSV or other text. Keep content inside codemode scripts, not model context. Source files are immutable; import edited text as a new file.",
+		"Store original bytes from an MCP binary resource (its resource.blob) or create a text file in RAM. Returns {id, fileName, mimeType, size, sha256}; pass id as fileId to Office tools or delivery. Use encoding base64 for binary files, utf8 for Markdown, CSV or other text. Keep content inside codemode scripts, not model context. Source files are immutable; import edited text as a new file.",
 		Type.Object(
 			{
 				fileName: Type.String({ minLength: 1 }),
