@@ -28,23 +28,51 @@ const isImage = (value: unknown): value is ImageContent =>
 	"mimeType" in value &&
 	typeof value.mimeType === "string";
 
+type BlobResource = {
+	type: "resource";
+	resource: { blob: string } & Record<string, unknown>;
+};
+
+const isBlobResource = (value: unknown): value is BlobResource =>
+	typeof value === "object" &&
+	value !== null &&
+	"type" in value &&
+	value.type === "resource" &&
+	"resource" in value &&
+	typeof value.resource === "object" &&
+	value.resource !== null &&
+	"blob" in value.resource &&
+	typeof value.resource.blob === "string";
+
+const base64Bytes = (base64: string): number =>
+	Math.floor((base64.length * 3) / 4) -
+	(base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0);
+
 /**
- * `value` with every image in it moved to `images`, so a returned tool result
- * shows its images to the model instead of their base64 as text.
+ * `value` as the model sees it: every image in it moved to `images`, so a
+ * returned tool result shows its images instead of their base64 as text, and
+ * the bytes of every binary resource left out, so a returned attachment does
+ * not flood the context; the script keeps the original to import or pass on.
  */
-const takeImages = (value: unknown, images: ImageContent[]): unknown => {
+const forModel = (value: unknown, images: ImageContent[]): unknown => {
 	if (isImage(value)) {
 		images.push({ type: "image", data: value.data, mimeType: value.mimeType });
 		return `[image ${images.length}]`;
 	}
-	if (Array.isArray(value))
-		return value.map((item) => takeImages(item, images));
+	if (isBlobResource(value)) {
+		const { blob, ...resource } = value.resource;
+		return {
+			...value,
+			resource: {
+				...resource,
+				blob: `[${base64Bytes(blob)} bytes left out; inside the script pass resource.blob to file_import]`,
+			},
+		};
+	}
+	if (Array.isArray(value)) return value.map((item) => forModel(item, images));
 	if (typeof value === "object" && value !== null) {
 		return Object.fromEntries(
-			Object.entries(value).map(([key, item]) => [
-				key,
-				takeImages(item, images),
-			]),
+			Object.entries(value).map(([key, item]) => [key, forModel(item, images)]),
 		);
 	}
 	return value;
@@ -99,8 +127,11 @@ export const createCodemodeTool = (tools: readonly CodemodeTool[]) => {
 			"it are shown too. There is no fetch, timers or modules. " +
 			"First discover argument/return declarations with `return await tools.tool_search({query: 'name or keywords'})`, " +
 			"then call the selected tools in another script. `ALL_TOOLS` lists names and descriptions. " +
-			"Keep file bytes inside scripts: request original/base64 content from an external attachment tool, " +
-			"then pass it to file_import to get a local fileId for editing. file_read_text and file_import edit UTF-8 text; " +
+			"Keep file bytes inside scripts. MCP tools return original files as binary resources: content blocks " +
+			"{type: 'resource', resource: {uri, mimeType, blob}, _meta: {filename, size}} with blob in base64; image and text " +
+			"blocks next to them are only previews, never the original. Pass resource.blob to file_import with encoding base64 " +
+			"and check that its size matches _meta.size; returned values show resources without their bytes. " +
+			"file_import gives a local fileId with the sha256 of the bytes. file_read_text and file_import edit UTF-8 text; " +
 			"Office tools open and export XLSX, DOCX and PPTX. file_read can supply base64 to external tools only when their discovered schema accepts it; " +
 			"external servers do not automatically understand local fileId references. Files and working copies (XLSX, DOCX, PPTX) are in-memory and expire on restart.\n\n" +
 			`${MCP_TYPESCRIPT_PREAMBLE}\n\n${renderDeclarations({ tools: [search] })}\n\n` +
@@ -127,7 +158,7 @@ export const createCodemodeTool = (tools: readonly CodemodeTool[]) => {
 				const content = [...result.output];
 				if (result.ok && result.value !== undefined) {
 					const images: ImageContent[] = [];
-					const value = takeImages(result.value, images);
+					const value = forModel(result.value, images);
 					content.push(
 						{ type: "text", text: JSON.stringify(value) },
 						...images,

@@ -1,10 +1,12 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 export type FileMetadata = {
 	id: string;
 	fileName: string;
 	mimeType: string;
 	size: number;
+	/** Hex SHA-256 of the bytes, to check a transfer against its source. */
+	sha256: string;
 };
 type StoredFile = FileMetadata & { data: Buffer; touched: number };
 const files = new Map<string, StoredFile>();
@@ -21,7 +23,8 @@ const metadata = ({
 	fileName,
 	mimeType,
 	size,
-}: FileMetadata): FileMetadata => ({ id, fileName, mimeType, size });
+	sha256,
+}: FileMetadata): FileMetadata => ({ id, fileName, mimeType, size, sha256 });
 
 /** RAM only. Both ingress and egress copy bytes so source files stay immutable. */
 export const putFile = (input: {
@@ -46,6 +49,7 @@ export const putFile = (input: {
 		data: Buffer.from(input.data),
 		id: randomUUID(),
 		size: input.data.length,
+		sha256: createHash("sha256").update(input.data).digest("hex"),
 		touched: Date.now(),
 	};
 	files.set(file.id, file);

@@ -8,6 +8,10 @@
 // without asking again; the link and the address are deleted from the chat.
 // /diagnostics tools lists the tools of the agent and of each subagent. Nothing of the bot is reachable from outside.
 // The agent sees the images a tool returns.
+// Original files move between servers inside a script: a server's binary
+// resource imports as a RAM file with the same bytes and reaches another
+// tool's base64 input unchanged, while the model sees the resource without
+// its bytes.
 // Subagents run in the background, several at once, each with the tools of
 // its own policy, and the agent gets their answers. (Their Lightpanda is left
 // to the deployment's use.)
@@ -17,7 +21,15 @@
 // A real model looks at the tool's image; after the restart the scripted
 // model (`e2e/scripted-model.ts`) makes the tool calls.
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -28,6 +40,7 @@ import type { Model } from "../src/index.ts";
 import { DEFAULT_PROMPT, type RunningBot, startBot } from "./bot.ts";
 import { COLORS } from "./image.ts";
 import { type RunningMcpServer, startHttpMcpServer } from "./mcp/http.ts";
+import { textPdf } from "./pdf.ts";
 import {
 	call,
 	codemode,
@@ -55,6 +68,12 @@ const color = COLORS[Math.floor(Math.random() * COLORS.length)] ?? COLORS[0];
 const directory = mkdtempSync(path.join(tmpdir(), "e2e-mcp-"));
 const visitFile = path.join(directory, "visits.txt");
 const callFile = path.join(directory, "scout-calls.txt");
+const attachmentDir = path.join(directory, "attachments");
+// A PDF and arbitrary binary bytes, which any re-encoding would change.
+const attachments = new Map([
+	[`invoice-${runId}.pdf`, textPdf(`TEST INVOICE ${runId}`)],
+	[`data-${runId}.bin`, randomBytes(1024 * 1024)],
+]);
 
 let httpServer: RunningMcpServer;
 let oauthServer: RunningMcpServer;
@@ -79,7 +98,12 @@ const startMcpBot = (model?: Model) =>
 			},
 		},
 		mcp: {
-			remote: ["get_word", "get_picture"],
+			remote: [
+				"get_word",
+				"get_picture",
+				"get_attachment",
+				"receive_attachment",
+			],
 			secure: ["get_word"],
 		},
 		subagents: {
@@ -104,7 +128,12 @@ const getWord = (server: string) =>
 	);
 
 before(async () => {
+	mkdirSync(attachmentDir);
+	for (const [name, data] of attachments) {
+		writeFileSync(path.join(attachmentDir, name), data);
+	}
 	httpServer = await startHttpMcpServer({
+		ATTACHMENT_DIR: attachmentDir,
 		WORD: httpWord,
 		PICTURE: color.rgb.join(","),
 		VISIT_FILE: visitFile,
@@ -225,6 +254,53 @@ test("mcp: allowed tools work with an API key and OAuth, others are hidden", {
 	await t.test("calls a tool over HTTP with the API key", async () => {
 		assert.match(await getWord("remote"), new RegExp(httpWord));
 	});
+
+	await t.test(
+		"moves original files between servers through RAM files",
+		async () => {
+			const reply = await sendAndWaitForReply(
+				client,
+				bot,
+				script(
+					codemode(`const moved = [];
+for (const name of ${JSON.stringify([...attachments.keys()])}) {
+	const fetched = await tools.remote__get_attachment({ name });
+	const block = fetched.content.find((part) => part.type === "resource");
+	const file = await tools.file_import({ fileName: block._meta.filename, mimeType: block.resource.mimeType, content: block.resource.blob, encoding: "base64" });
+	if (file.size !== block._meta.size) throw new Error("size mismatch");
+	const read = await tools.file_read({ fileId: file.id, length: file.size });
+	if (!read.eof) throw new Error("partial read");
+	const received = await tools.remote__receive_attachment({ filename: read.fileName, mime_type: read.mimeType, content: read.base64 });
+	const got = JSON.parse(received.content[0].text);
+	moved.push({ moved: [name, file.sha256, file.size, "->", got.filename, got.mime_type, got.sha256, got.size].join(" "), shown: fetched });
+}
+return moved;`),
+					say("{{result}}"),
+				),
+				{ timeoutMs: MINUTE },
+			);
+			for (const [name, data] of attachments) {
+				const sha256 = createHash("sha256").update(data).digest("hex");
+				const mimeType = name.endsWith(".pdf")
+					? "application/pdf"
+					: "application/octet-stream";
+				assert.ok(
+					reply.includes(
+						`${name} ${sha256} ${data.length} -> ${name} ${mimeType} ${sha256} ${data.length}`,
+					),
+					reply.slice(0, 2000),
+				);
+				assert.ok(
+					reply.includes(`${data.length} bytes left out`),
+					reply.slice(0, 2000),
+				);
+				assert.ok(
+					!reply.includes(data.toString("base64").slice(0, 64)),
+					"the model saw the bytes",
+				);
+			}
+		},
+	);
 
 	await t.test("subagents run at once, with tools of their own", async () => {
 		const task = script(
