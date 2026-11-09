@@ -7,9 +7,11 @@ import {
 } from "grammy";
 
 import { harness, root } from "../agent/harness.ts";
+import { localTools } from "../agent/local-tools.ts";
 import { currentUsage } from "../agent/usage.ts";
 import { LIGHTPANDA_TOOLS } from "../lightpanda/connect.ts";
 import { toolName } from "../mcp/client.ts";
+import { workerPolicy } from "../mcp/config.ts";
 import type { Mcp } from "../mcp/start.ts";
 import { skillLines, skillText } from "../memory/skills.ts";
 import { openMemory } from "../memory/store.ts";
@@ -21,6 +23,11 @@ import { usageText } from "./usage.ts";
 // `/diagnostics <what>` shows how the agent stands, past the agent.
 
 const CODEMODE = "codemode";
+
+const policyTools = (policy: ReadonlyMap<string, readonly string[]>) =>
+	[...policy].flatMap(([server, tools]) =>
+		tools.map((tool) => toolName(server, tool)),
+	);
 
 const toolLines = (tools: string[], mcpTools: string[]): string[] =>
 	tools.map((tool) =>
@@ -39,11 +46,15 @@ const toolsText = async (mcp: Mcp): Promise<string> => {
 			agent.tools.map((tool) => tool.name),
 			mcp.tools(),
 		),
+		"",
+		"general (gdy pracuje):",
+		...toolLines(
+			[CODEMODE],
+			[...localTools.map(({ name }) => name), ...policyTools(workerPolicy)],
+		),
 		...[...subagents].flatMap(([name, { policy, lightpanda }]) => {
 			const mcpTools = [
-				...[...policy].flatMap(([server, tools]) =>
-					tools.map((tool) => toolName(server, tool)),
-				),
+				...policyTools(policy),
 				...(lightpanda ? LIGHTPANDA_TOOLS : []),
 			];
 			return [

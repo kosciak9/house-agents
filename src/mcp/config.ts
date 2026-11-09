@@ -136,5 +136,11 @@ export const parsePolicy = (value: unknown, field: string): Policy => {
 /** What the agent itself may use. */
 export const agentPolicy = parsePolicy(config().mcp, "config.mcp");
 
+/** What its workers, the general subagents, may use. */
+export const workerPolicy =
+	config().worker?.mcp === undefined
+		? agentPolicy
+		: parsePolicy(config().worker?.mcp, "config.worker.mcp");
+
 /** OAuth clients and tokens of the servers, shared by every connection. */
 export const tokens = openTokenStore(stateFile("mcp-oauth.json"));

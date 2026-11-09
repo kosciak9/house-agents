@@ -7,6 +7,7 @@ import {
 	type ServerConfig,
 	servers,
 	tokens,
+	workerPolicy,
 } from "../mcp/config.ts";
 import { type McpLogin, startLogin } from "../mcp/login.ts";
 import { hasTokens } from "../mcp/oauth.ts";
@@ -23,9 +24,10 @@ export const LOGIN_COMMAND = "mcp_login";
 
 const AGENT = "agent";
 
-// Who may use what, by policy: the agent and each subagent.
+// Who may use what, by policy: the agent, its worker and each subagent.
 const policies: [string, Policy][] = [
 	[AGENT, agentPolicy],
+	["general", workerPolicy],
 	...[...subagents].map(([name, subagent]): [string, Policy] => [
 		name,
 		subagent.policy,

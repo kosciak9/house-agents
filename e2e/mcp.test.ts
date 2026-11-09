@@ -174,8 +174,8 @@ test("mcp: allowed tools work with an API key and OAuth, others are hidden", {
 		async () => {
 			runningBot = await startMcpBot();
 			const list = await sendAndWaitForReply(client, bot, "/mcp");
-			assert.match(list, /^secure: 🔒 wymaga logowania; dla: agent$/m);
-			assert.match(list, /^remote: ✓ połączony; dla: agent$/m);
+			assert.match(list, /^secure: 🔒 wymaga logowania; dla: agent, general$/m);
+			assert.match(list, /^remote: ✓ połączony; dla: agent, general$/m);
 			assert.match(list, /^words: .*; dla: zwiadowca$/m);
 		},
 	);
@@ -225,6 +225,11 @@ test("mcp: allowed tools work with an API key and OAuth, others are hidden", {
 		const tools = await sendAndWaitForReply(client, bot, "/diagnostics tools");
 		assert.match(tools, /^· codemode: .*secure__get_word/m);
 		assert.match(tools, /^· subagent$/m);
+		// The worker connects to the agent's servers itself, next to the local tools.
+		assert.match(
+			tools,
+			/^general \(gdy pracuje\):\n· codemode: .*file_read.*secure__get_word/m,
+		);
 		assert.match(
 			tools,
 			/^zwiadowca \(gdy pracuje\):\n· codemode: words__get_word$/m,

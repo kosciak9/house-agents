@@ -1,17 +1,14 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 
 import { harness, root } from "./agent/harness.ts";
+import { localTools } from "./agent/local-tools.ts";
 import { compactionLimits, memory } from "./agent/memory.ts";
 import { registry } from "./agent/registry.ts";
-import { fileTools } from "./files/tools.ts";
 import { agentPolicy, servers, tokens } from "./mcp/config.ts";
 import { startMcp } from "./mcp/start.ts";
 import { compactWhenDue } from "./memory/keeper.ts";
-import { skillTools } from "./memory/skills.ts";
-import { officeTools } from "./office/tools.ts";
 import { refreshGeneralSubagents } from "./subagents/resume.ts";
 import { forwardToTelegram, startTelegram } from "./telegram/start.ts";
-import { telegramTools } from "./telegram/tools.ts";
 
 await forwardToTelegram();
 // Resumed runs need the same catalogue as new inputs, even without MCP servers.
@@ -20,7 +17,7 @@ const mcp = await startMcp({
 	servers,
 	policy: agentPolicy,
 	tokens,
-	localTools: [...fileTools, ...officeTools, ...telegramTools, ...skillTools],
+	localTools,
 });
 await refreshGeneralSubagents({ harness, registry }, BACKGROUND_CONTEXT);
 // Resume only once forwarding is attached, so answers of runs interrupted by
