@@ -144,7 +144,7 @@ const report = (
 		`Every "${agent}" subagent you started has answered; they are done ` +
 			"and gone. " +
 			(root
-				? "The user has not seen their answers: reply to the user with what they asked for, from these answers."
+				? "The user has not seen their answers: reply to the user with what they asked for, from these answers, or NO_REPLY if they leave nothing worth telling."
 				: "Use these answers to finish your standalone task and report back to your parent."),
 		...tasks.map(
 			(task, index) =>

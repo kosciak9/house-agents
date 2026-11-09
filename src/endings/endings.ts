@@ -38,8 +38,8 @@ const ENDINGS_INSTRUCTIONS = [
 		"user's message gets it as a reaction and no message is sent. Use it " +
 		"when their message needs no words back, e.g. thanks or an okay;",
 	`- nothing: your whole answer is exactly ${NO_REPLY} and nothing reaches ` +
-		"the user. Use it only for scheduled prompts that leave nothing worth " +
-		"telling them.",
+		"the user. Use it only for scheduled prompts and subagent answers that " +
+		"leave nothing worth telling them.",
 ].join("\n");
 
 export const EndingsExtension = defineExtension({
