@@ -10,7 +10,7 @@ import {
 import { NapTask } from "./nap.ts";
 import { compact, rewriteOutdated, SessionTask } from "./session.ts";
 import { SKILLS_NOTE } from "./skills.ts";
-import { createMemoryAskTool, keepsMemory, memoryZoomTool } from "./tools.ts";
+import { createMemoryAskTool, memoryZoomTool } from "./tools.ts";
 import { renderWake } from "./wake.ts";
 
 const SECTION = "memory";
@@ -36,13 +36,9 @@ export const createMemory = ({
 				SECTION,
 				// Rendered once per context: the prompt stays stable, and every new
 				// context reads the memory afresh.
-				async (input, context) => {
-					if (!keepsMemory(input.conversationId)) return undefined;
-					return (
-						input.shown[SECTION] ??
-						`${await renderWake(input.read, context)}\n\n${SKILLS_NOTE}`
-					);
-				},
+				async (input, context) =>
+					input.shown[SECTION] ??
+					`${await renderWake(input.read, context)}\n\n${SKILLS_NOTE}`,
 				{ tag: false },
 			),
 		],

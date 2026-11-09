@@ -75,8 +75,9 @@ export const createGeneralRunExtension = (conversation: ConversationId) =>
 				"subagent-context",
 				() =>
 					"You are a general subagent working on a standalone task. " +
-					"You have the root assistant's tools, but not its transcript " +
-					"or long-term memory: memory tools are root-only. Return " +
+					"You have the root assistant's tools and read its long-term " +
+					"memory and skills, but not its transcript; only the root " +
+					"writes skills. Return " +
 					"a substantive text answer to your parent, not a user-facing " +
 					"acknowledgement, reaction or NO_REPLY. If you delegate, " +
 					"the subagent tool waits for that work before returning; " +

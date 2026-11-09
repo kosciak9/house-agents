@@ -121,7 +121,9 @@ export const SKILLS_NOTE = [
 // skill_search returns this many skills a call, so a long list stays out of the context.
 const PAGE = 20;
 
-const NOT_KEPT = "Only the main conversation keeps skills.";
+// Every conversation reads the skills; only the main conversation writes them,
+// since a skill points back to the main conversation's session it came from.
+const NOT_KEPT = "Only the main conversation writes skills.";
 
 const name = Type.String({
 	description: "Lowercase words joined by hyphens: plan-the-day",
@@ -143,8 +145,6 @@ export const skillTools: readonly CodemodeTool[] = [
 			{ additionalProperties: false },
 		),
 		async ({ query, offset = 0 }, { api, context }) => {
-			if (api.conversationId !== ROOT_CONVERSATION_ID)
-				throw new Error(NOT_KEPT);
 			const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
 			const found = Object.entries(await readSkills(api, context))
 				.filter(([name, skill]) => {
@@ -173,8 +173,6 @@ export const skillTools: readonly CodemodeTool[] = [
 			"recovers what the skill compressed away.",
 		Type.Object({ name }, { additionalProperties: false }),
 		async (args, { api, context }) => {
-			if (api.conversationId !== ROOT_CONVERSATION_ID)
-				throw new Error(NOT_KEPT);
 			const skill = (await readSkills(api, context))[args.name];
 			if (skill === undefined) throw new Error(`No skill "${args.name}".`);
 			const from = await sources(api, context, { [args.name]: skill });

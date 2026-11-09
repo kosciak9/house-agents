@@ -1,11 +1,6 @@
 import type { Models } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
-import {
-	type ConversationId,
-	defineTool,
-	type ModelRef,
-	ROOT_CONVERSATION_ID,
-} from "@earendil-works/pi-durable";
+import { defineTool, type ModelRef } from "@earendil-works/pi-durable";
 
 import { ask } from "./llm.ts";
 import { openMemory } from "./store.ts";
@@ -21,18 +16,14 @@ const ASK_SYSTEM_PROMPT =
 	"alternatives considered, what stayed open. Say when the answer is uncertain or the conversation " +
 	"does not contain it, and give what comes closest. Invent nothing.";
 
-// The memory is the main conversation's own. A subagent cannot judge what is
-// already known, so it neither reads nor writes it.
-export const keepsMemory = (conversationId: ConversationId): boolean =>
-	conversationId === ROOT_CONVERSATION_ID;
+// Every conversation that installs the memory reads it, so a general subagent
+// finds the past as the main conversation does; only the main conversation's
+// sessions are written to it (`session.ts`).
 
 const text = (lines: readonly string[], isError = false) => ({
 	content: [{ type: "text" as const, text: lines.join("\n") }],
 	isError,
 });
-
-const notKept = () =>
-	text(["Only the main conversation keeps long-term memory."], true);
 
 export const memoryZoomTool = defineTool({
 	name: "memory_zoom",
@@ -48,8 +39,6 @@ export const memoryZoomTool = defineTool({
 	replay: "safe",
 
 	execute: async (args, api, context) => {
-		if (!keepsMemory(api.conversationId)) return notKept();
-
 		const block = parseBlock(args.block);
 		if (block === undefined) {
 			return text(
@@ -98,8 +87,6 @@ export const createMemoryAskTool = ({
 		replay: "safe",
 
 		execute: async (args, api, context) => {
-			if (!keepsMemory(api.conversationId)) return notKept();
-
 			const id = args.session.replace(/[[\]\s]/g, "");
 			const memory = await openMemory(api, context);
 			const leaf = (await memory.leaves(0, memory.count)).find(
