@@ -1,5 +1,6 @@
 import type { Context } from "@earendil-works/chord";
 import { type AssistantMessage, Type } from "@earendil-works/pi-ai";
+import type { CodemodeTool } from "@earendil-works/pi-codemode";
 import {
 	type ConversationId,
 	configure,
@@ -14,22 +15,25 @@ import {
 	type TaskId,
 } from "@earendil-works/pi-durable";
 
+import { localTools } from "../agent/local-tools.ts";
 import { PromptFirstExtension } from "../agent/prompt-first.ts";
 import { createCodemodeTool } from "../codemode/tool.ts";
-import { config, modelSettings } from "../config.ts";
+import { modelSettings } from "../config.ts";
 import { connectLightpanda } from "../lightpanda/connect.ts";
 import { type Connection, connectServers } from "../mcp/client.ts";
-import type { ServerConfig } from "../mcp/config.ts";
+import { type ServerConfig, workerPolicy } from "../mcp/config.ts";
 import type { TokenStore } from "../mcp/oauth.ts";
-import type { SubagentConfig } from "./config.ts";
+import { general, type SubagentConfig } from "./config.ts";
 
 // The agent hands tasks to subagents with one tool, `subagent`, and carries
 // on: a background task, owned by the agent's conversation but outside its
 // runs, gives each task a conversation of its own and runs them all at once.
 // Once every one has answered, it hands the answers back to the agent as one
-// input. Every task is standalone, without its parent's transcript. General
-// shares the root's model, instructions and tools, including delegation;
-// specialists keep their configured prompt and isolated tool connections.
+// input. Every task is standalone, without its parent's transcript. General,
+// the agent's worker, runs on the worker's prompt and model with the root's
+// extensions (memory, skills, delegation) but a codemode of its own: the local
+// tools and the MCP tools of the worker's policy, on connections opened for it.
+// Specialists keep their configured prompt and isolated tool connections.
 //
 // A specialist gets the MCP tools its policy allows, and Lightpanda if it has it, on
 // connections of its own: opened when it starts and closed once it has
@@ -51,8 +55,9 @@ const CallDoc = defineDoc<{ job: TaskId<string | null> | null }>({
 });
 
 const GENERAL_DESCRIPTION =
-	"Same model, instructions and tools as you, in an isolated context. Use for " +
-	"substantial standalone tasks, including expensive file editing. Pass the " +
+	"Your worker, in an isolated context: it reaches the sources and services " +
+	"(MCP), files and the web, and reads your memory and skills. Use it for " +
+	"everything beyond this conversation, including expensive file editing. Pass the " +
 	"source fileId and all requirements; have it open a separate working copy " +
 	"or clone before editing, and return the exported fileId in its text answer, " +
 	"never file bytes. File and working-copy handles (XLSX, DOCX, PPTX) are volatile: after a process " +
@@ -66,18 +71,29 @@ export const rootExtensions = (registry: Registry): Extension[] =>
 		.installed()
 		.filter((extension) => !extension.name.startsWith(RUN_EXTENSION));
 
-/** Installed again before resuming an interrupted general conversation. */
-export const createGeneralRunExtension = (conversation: ConversationId) =>
+/** The root's extensions without its codemode: a worker brings its own. */
+export const generalExtensions = (registry: Registry): Extension[] =>
+	rootExtensions(registry).filter(({ name }) => name !== "codemode");
+
+/**
+ * A worker's own extension, with its codemode over `tools`; installed again,
+ * with the local tools only, before resuming an interrupted general
+ * conversation, until its run connects the servers again.
+ */
+export const createGeneralRunExtension = (
+	conversation: ConversationId,
+	tools: readonly CodemodeTool[] = localTools,
+) =>
 	defineExtension({
 		name: `${RUN_EXTENSION}${conversation}`,
+		tools: [createCodemodeTool(tools)],
 		sections: [
 			section(
 				"subagent-context",
 				() =>
 					"You are a general subagent working on a standalone task. " +
-					"You have the root assistant's tools and read its long-term " +
-					"memory and skills, but not its transcript; only the root " +
-					"writes skills. Return " +
+					"You read the root assistant's long-term memory and skills, " +
+					"but not its transcript; only the root writes skills. Return " +
 					"a substantive text answer to your parent, not a user-facing " +
 					"acknowledgement, reaction or NO_REPLY. If you delegate, " +
 					"the subagent tool waits for that work before returning; " +
@@ -148,8 +164,26 @@ export const createSubagentExtension = ({
 	servers: ReadonlyMap<string, ServerConfig>;
 	tokens: TokenStore;
 }) => {
+	// A worker's servers one by one: one that cannot be reached is left out
+	// rather than failing the whole run.
+	const connectWorkerServers = async (): Promise<Connection[]> => {
+		const settled = await Promise.allSettled(
+			[...workerPolicy].map(([server, allowed]) =>
+				connectServers(new Map([[server, allowed]]), servers, tokens),
+			),
+		);
+		return settled.flatMap((result, index) => {
+			if (result.status === "fulfilled") return [result.value];
+			console.error(
+				`MCP ${[...workerPolicy.keys()][index]}: not connected for a worker:`,
+				result.reason,
+			);
+			return [];
+		});
+	};
+
 	const agentConfig = (name: string) => {
-		if (name === "general") return config();
+		if (name === "general") return general();
 		const specialist = subagents.get(name);
 		if (!specialist) throw new Error(`No subagent "${name}"`);
 		return specialist;
@@ -176,7 +210,7 @@ export const createSubagentExtension = ({
 							tools: null,
 							extensions:
 								task.input.agent === "general"
-									? rootExtensions(registry)
+									? generalExtensions(registry)
 									: [PromptFirstExtension],
 						});
 						conversations.push(id);
@@ -192,8 +226,7 @@ export const createSubagentExtension = ({
 				const subagent = agentConfig(task.input.agent);
 				const specialist = subagents.get(task.input.agent);
 
-				// General reuses the root's installed catalogue, including local tools;
-				// specialists reconnect their private servers after a restart.
+				// Every run opens its own connections, and a restart reconnects them.
 				const answer = async (
 					conversation: ConversationId,
 					prompt: string,
@@ -208,6 +241,8 @@ export const createSubagentExtension = ({
 							if (specialist.lightpanda) {
 								connections.push(await connectLightpanda());
 							}
+						} else {
+							connections.push(...(await connectWorkerServers()));
 						}
 						const tools = connections.flatMap(({ tools }) => tools);
 						const extension = specialist
@@ -215,7 +250,10 @@ export const createSubagentExtension = ({
 									...run,
 									tools: tools.length > 0 ? [createCodemodeTool(tools)] : [],
 								})
-							: createGeneralRunExtension(conversation);
+							: createGeneralRunExtension(conversation, [
+									...localTools,
+									...tools,
+								]);
 						registry.install(extension);
 						await runtime.commit(async (tx) => {
 							await configure(tx, conversation, {
@@ -228,7 +266,7 @@ export const createSubagentExtension = ({
 								extensions: [
 									...(specialist
 										? [PromptFirstExtension]
-										: rootExtensions(registry)),
+										: generalExtensions(registry)),
 									extension,
 								],
 							});

@@ -5,8 +5,9 @@ import type {
 	Registry,
 } from "@earendil-works/pi-durable";
 
-import { config, modelSettings } from "../config.ts";
-import { createGeneralRunExtension, rootExtensions } from "./extension.ts";
+import { modelSettings } from "../config.ts";
+import { general } from "./config.ts";
+import { createGeneralRunExtension, generalExtensions } from "./extension.ts";
 
 const isConversationId = (value: unknown): value is ConversationId =>
 	typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -17,8 +18,8 @@ export const refreshGeneralSubagents = async (
 	context: Context,
 ): Promise<void> => {
 	const { tasks } = await harness.inspect(context);
-	const { model, prompt } = config();
-	const extensions = rootExtensions(registry);
+	const { model, prompt } = general();
+	const extensions = generalExtensions(registry);
 	for (const { record } of tasks) {
 		if (record.kind !== "subagent.job") continue;
 		const input = record.input;

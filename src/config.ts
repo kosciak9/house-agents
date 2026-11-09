@@ -100,6 +100,24 @@ export type Config = {
 	mcpServers?: Record<string, McpServer>;
 	/** What the agent itself may use of them. */
 	mcp?: McpPolicy;
+	/**
+	 * The general subagent, the agent's worker. By default it shares the
+	 * agent's prompt, model and MCP tools; giving it its own lets the agent
+	 * only talk and delegate while its workers reach the servers.
+	 */
+	worker?: {
+		/** Its system prompt; the agent's `prompt` by default. */
+		prompt?: string;
+		/** The agent's `model` by default. */
+		model?: Model;
+		/** What it may use of the MCP servers; the agent's `mcp` by default. */
+		mcp?: McpPolicy;
+	};
+	/**
+	 * A cheap model for helper work that would waste the agent's own turns,
+	 * such as reading its memory; `openai-codex` `gpt-6-luna` by default.
+	 */
+	smallModel?: Model;
 	/** The subagents the agent may start, by name. */
 	subagents?: Record<string, Subagent>;
 	/**
@@ -171,6 +189,26 @@ export const useConfig = (value: Config): void => {
 			typeof value.fallbackModel.modelId !== "string")
 	) {
 		throw new Error("config.fallbackModel needs a provider and a modelId");
+	}
+	for (const [field, model] of [
+		["config.worker.model", value.worker?.model],
+		["config.smallModel", value.smallModel],
+	] as const) {
+		if (
+			model !== undefined &&
+			(typeof model?.provider !== "string" || typeof model.modelId !== "string")
+		) {
+			throw new Error(`${field} needs a provider and a modelId`);
+		}
+	}
+	if (
+		value.worker !== undefined &&
+		(typeof value.worker !== "object" ||
+			value.worker === null ||
+			(value.worker.prompt !== undefined &&
+				(typeof value.worker.prompt !== "string" || !value.worker.prompt)))
+	) {
+		throw new Error("config.worker must be an object with a non-empty prompt");
 	}
 	if (value.providers !== undefined && !Array.isArray(value.providers)) {
 		throw new Error("config.providers must be an array");

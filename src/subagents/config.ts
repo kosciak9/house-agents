@@ -22,6 +22,16 @@ const requiredString = (value: unknown, field: string): string => {
 	return value;
 };
 
+const workerModel = config().worker?.model;
+if (
+	workerModel &&
+	!models.getModel(workerModel.provider, workerModel.modelId)
+) {
+	throw new Error(
+		`config.worker.model ${workerModel.provider}/${workerModel.modelId} is unknown`,
+	);
+}
+
 const parseSubagent = (name: string, value: unknown): SubagentConfig => {
 	const field = `config.subagents.${name}`;
 	if (name === "general") {
@@ -56,6 +66,12 @@ const parseSubagent = (name: string, value: unknown): SubagentConfig => {
 		policy,
 		lightpanda,
 	};
+};
+
+/** The general subagent, the agent's worker: its prompt and model. */
+export const general = (): { prompt: string; model: Model } => {
+	const { prompt, model, worker } = config();
+	return { prompt: worker?.prompt ?? prompt, model: worker?.model ?? model };
 };
 
 export const subagents: ReadonlyMap<string, SubagentConfig> = new Map(
