@@ -4,19 +4,21 @@ import type { Conversation } from "@earendil-works/pi-durable";
 import { Cron } from "croner";
 
 import { agentModels, SMALL_MODEL } from "../agent/models.ts";
-import type { Reviews } from "../config.ts";
+import type { Retro, Reviews } from "../config.ts";
 import { ask } from "../memory/llm.ts";
 import { scheduledInput } from "../scheduler/scheduled.ts";
 import { keepWakes, type Wake } from "../scheduler/wakes.ts";
+import { Scratchpad } from "../scratchpad/scratchpad.ts";
 import { fromWall, toWall } from "./wall.ts";
 
 // At every review moment the harness wakes the agent with the review prompt.
 // Before it, the guard reads the last day of the conversation, across
 // compactions, and lists the matters still open with a time to come back to
 // each; the prompt carries the list, and the timed matters become wake-ups
-// labelled "guard", which replace those of the review before. Timers live in
-// this process: a review missed while it was down still runs within
-// `CATCH_UP`, once (the request id), and is lost after.
+// labelled "guard", which replace those of the review before. The nightly
+// retro gives the agent the same day to learn from. Timers live in this
+// process: a firing missed while it was down still runs within `CATCH_UP`,
+// once (the request id), and is lost after.
 
 const DAY = 24 * 60 * 60 * 1000;
 const CATCH_UP = 30 * 60 * 1000;
@@ -28,7 +30,7 @@ const MORNING = "08:00";
 const NIGHT_HOUR = 22;
 const MAX_WAKES = 10;
 
-const REPORT = /^Every ".+" subagent you started has answered/;
+const REPORT = /^Every (".+" )?subagent you started has answered/;
 const MATTER = /^[\s*-]*(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s*\|\s*(.+)$/gm;
 
 const textOf = (message: Message): string =>
@@ -169,9 +171,13 @@ const guardList = async (
 ): Promise<string> => {
 	const now = Date.now();
 	const lines = await transcript(conversation, now - DAY, timeZone);
+	const scratchpad = await conversation.commit(
+		async (tx) => (await tx.doc(Scratchpad, conversation.id)).text,
+		BACKGROUND_CONTEXT,
+	);
 	const answer = await ask(agentModels, SMALL_MODEL, {
 		system: guard.prompt,
-		prompt: `Now: ${toWall(now, timeZone)} (${timeZone})\n<conversation>\n${lines || "(empty)"}\n</conversation>`,
+		prompt: `Now: ${toWall(now, timeZone)} (${timeZone})\n<conversation>\n${lines || "(empty)"}\n</conversation>\n\n<scratchpad>\n${scratchpad || "(empty)"}\n</scratchpad>`,
 	});
 	if (!answer.ok) throw new Error(answer.error);
 	await keepWakes(
@@ -183,24 +189,54 @@ const guardList = async (
 	return `\n\n${guard.heading}\n${answer.text}`;
 };
 
-/** Wakes `conversation` for a review at every firing of `reviews.cron`. */
-export const startReviews = (
-	conversation: Conversation,
-	reviews: Reviews,
+// Runs `fire` at every firing of `cron`, and once at start for a firing
+// missed within `CATCH_UP`.
+const startRoutine = (
+	name: string,
+	{ cron, timeZone }: { cron: string; timeZone?: string },
+	fire: (scheduledFor: number) => Promise<void>,
 ): void => {
-	const timeZone =
-		reviews.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 	const run = (scheduledFor: number) =>
-		review(conversation, reviews, timeZone, scheduledFor).catch((error) =>
-			console.error("The review failed:", error),
+		fire(scheduledFor).catch((error) =>
+			console.error(`The ${name} failed:`, error),
 		);
-	const schedule = new Cron(reviews.cron, {
-		timezone: reviews.timeZone,
-		unref: true,
-	});
+	const schedule = new Cron(cron, { timezone: timeZone, unref: true });
 	const missed = schedule.nextRun(new Date(Date.now() - CATCH_UP))?.getTime();
 	if (missed !== undefined && missed <= Date.now()) void run(missed);
 	schedule.schedule((self: Cron) => {
 		void run(self.currentRun()?.getTime() ?? Date.now());
 	});
 };
+
+const zoneOf = (timeZone: string | undefined): string =>
+	timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+/** Wakes `conversation` for a review at every firing of `reviews.cron`. */
+export const startReviews = (
+	conversation: Conversation,
+	reviews: Reviews,
+): void =>
+	startRoutine("review", reviews, (scheduledFor) =>
+		review(conversation, reviews, zoneOf(reviews.timeZone), scheduledFor),
+	);
+
+/** Gives `conversation` its last day for a retro at every firing of `retro.cron`. */
+export const startRetro = (conversation: Conversation, retro: Retro): void =>
+	startRoutine("retro", retro, async (scheduledFor) => {
+		const lines = await transcript(
+			conversation,
+			Date.now() - DAY,
+			zoneOf(retro.timeZone),
+		);
+		await conversation.submit(
+			{
+				type: "input",
+				content: scheduledInput(
+					`${retro.prompt}\n\n<day>\n${lines || "(empty)"}\n</day>`,
+				),
+				whenBusy: "followUp",
+				requestId: `retro:${scheduledFor}`,
+			},
+			BACKGROUND_CONTEXT,
+		);
+	});

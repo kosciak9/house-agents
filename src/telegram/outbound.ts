@@ -53,12 +53,20 @@ const react = async (messageId: number, emoji: string): Promise<boolean> => {
 	}
 };
 
+// Not one letter or digit, e.g. an emoji or "…": a reaction when it answers the user,
+// and nothing worth a message of its own when it does not.
+const isLetterless = (ending: Ending): boolean =>
+	ending.kind !== "silent" &&
+	!/[\p{L}\p{N}]/u.test(
+		ending.kind === "reaction" ? ending.emoji : ending.markdown,
+	);
+
 const deliver = async (ending: Ending): Promise<void> => {
 	const target = takeReplyTarget();
 	if (ending.kind === "silent") return;
+	if (target === undefined && isLetterless(ending)) return;
 
-	// With no message to react to, or an emoji Telegram refuses, the emoji
-	// goes as a message.
+	// An emoji Telegram refuses goes as a message.
 	if (ending.kind === "reaction") {
 		if (target !== undefined && (await react(target, ending.emoji))) return;
 		const sent = await bot.api.sendMessage(chatId, ending.emoji);

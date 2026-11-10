@@ -5,6 +5,7 @@ import { EndingsExtension } from "../endings/endings.ts";
 import { servers, tokens } from "../mcp/config.ts";
 import { createProgressExtension } from "../progress/extension.ts";
 import { SchedulerExtension } from "../scheduler/extension.ts";
+import { ScratchpadExtension } from "../scratchpad/scratchpad.ts";
 import { SourcesExtension } from "../sources/sources.ts";
 import { subagents } from "../subagents/config.ts";
 import { createSubagentExtension } from "../subagents/extension.ts";
@@ -19,6 +20,7 @@ registry.install(PromptFirstExtension);
 registry.install(memory.extension);
 registry.install(EndingsExtension);
 registry.install(SchedulerExtension);
+registry.install(ScratchpadExtension);
 if (config().sources) registry.install(SourcesExtension);
 registry.install(createProgressExtension(publishProgress));
 registry.install(

@@ -5,7 +5,8 @@
 // chat. The scripted model (`e2e/scripted-model.ts`) makes the tool calls, so
 // this tests the scheduler, not a model's judgement.
 // Runs its own bot process on an empty session, so no schedule outlives the
-// test. Takes under a minute.
+// test. A wake-up whose answer has not one letter sends nothing. Takes about
+// a minute.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
@@ -132,5 +133,33 @@ test("cron: create → fires → listed → deleted → stops; silent wake-up", 
 		);
 		assert.ok(isListed(list, code), `Not listed: ${list}`);
 		assert.ok(!isListed(list, label), `Still listed: ${list}`);
+	});
+
+	await t.test("a wake-up's answer without a letter is not sent", async () => {
+		const quiet = `QUIET-${token}`;
+		await sendAndWaitForReply(
+			client,
+			bot,
+			script(
+				call("schedule_wakeup", {
+					delaySeconds: 2,
+					prompt: script(say("👍 …")),
+					reason: quiet,
+				}),
+				say("{{result}}"),
+			),
+			{ matches: isNotTick, timeoutMs: MINUTE },
+		);
+		await expectNoBotMessage(client, bot, {
+			matches: (text) => text.includes("…") || text === "👍",
+			durationMs: 12 * SECOND,
+		});
+		const list = await sendAndWaitForReply(
+			client,
+			bot,
+			script(call("cron_list", {}), say("{{result}}")),
+			{ matches: isNotTick, timeoutMs: MINUTE },
+		);
+		assert.ok(!isListed(list, quiet), `Not fired: ${list}`);
 	});
 });

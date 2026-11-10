@@ -8,7 +8,7 @@ import { config } from "./config.ts";
 import { agentPolicy, servers, tokens } from "./mcp/config.ts";
 import { startMcp } from "./mcp/start.ts";
 import { compactWhenDue } from "./memory/keeper.ts";
-import { startReviews } from "./reviews/reviews.ts";
+import { startRetro, startReviews } from "./reviews/reviews.ts";
 import { startSources } from "./sources/sources.ts";
 import { refreshGeneralSubagents } from "./subagents/resume.ts";
 import { forwardToTelegram, startTelegram } from "./telegram/start.ts";
@@ -27,8 +27,9 @@ await refreshGeneralSubagents({ harness, registry }, BACKGROUND_CONTEXT);
 // the last shutdown still reach the chat.
 harness.resume();
 
-const { reviews, sources } = config();
+const { reviews, retro, sources } = config();
 if (reviews) startReviews(root, reviews);
+if (retro) startRetro(root, retro);
 if (sources) startSources({ conversation: root, sources, servers, tokens });
 
 await memory.upgrade(root, BACKGROUND_CONTEXT);

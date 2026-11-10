@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type { Model, Reviews } from "../src/index.ts";
+import type { Model, Retro, Reviews } from "../src/index.ts";
 import type { E2eSource } from "./agent.ts";
 
 /** The agent's prompt; tests describe their agent here, never in the repo. */
@@ -70,6 +70,7 @@ export const startBot = async ({
 	subagents = {},
 	smallModel,
 	reviews,
+	retro,
 	sources,
 	credentialsFile = path.resolve("state/auth.json"),
 }: {
@@ -89,6 +90,8 @@ export const startBot = async ({
 	smallModel?: Model;
 	/** The config's `reviews`. */
 	reviews?: Reviews;
+	/** The config's `retro`. */
+	retro?: Retro;
 	/** The config's `sources`, as JSON (`E2eSource`, `e2e/agent.ts`). */
 	sources?: Record<string, E2eSource>;
 	credentialsFile?: string;
@@ -108,6 +111,7 @@ export const startBot = async ({
 		subagents,
 		...(smallModel && { smallModel }),
 		...(reviews && { reviews }),
+		...(retro && { retro }),
 		...(sources && { sources }),
 		stateDir: directory,
 		credentialsFile,
