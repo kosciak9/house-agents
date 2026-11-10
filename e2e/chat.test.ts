@@ -1,5 +1,6 @@
 // Contract: what the agent hears from the chat besides single messages.
-// Messages sent within three seconds of each other reach it as one input; a
+// A message reaches it at once, and what is sent while it answers reaches it
+// as one input after that answer; a
 // reply comes with the message it answers; a reaction starts no turn, but the
 // next message tells it which emoji landed on which of its messages. The scripted model (`e2e/scripted-model.ts`)
 // repeats what it was given, so this tests the adapter, not a model's
@@ -10,7 +11,7 @@ import { after, before, test } from "node:test";
 import type { Client } from "tdl";
 
 import { type RunningBot, startBot } from "./bot.ts";
-import { SCRIPTED_MODEL, say, script } from "./scripted-model.ts";
+import { codemode, SCRIPTED_MODEL, say, script } from "./scripted-model.ts";
 import {
 	botUsername,
 	connectTestUser,
@@ -48,13 +49,32 @@ after(async () => {
 test("chat: batched messages, replies and reactions", {
 	timeout: 3 * MINUTE,
 }, async (t) => {
-	await t.test("hears messages sent together as one", async () => {
-		// Apart, the first would be answered before the second came, with
+	await t.test("hears what came while it answered as one", async () => {
+		const first = `FIRST-${runId}`;
+		const answered = waitForBotMessage(client, bot, {
+			matches: (text) => text === first,
+			timeoutMs: MINUTE,
+		});
+		const repeated = waitForBotMessage(client, bot, {
+			matches: (text) => text === second,
+			timeoutMs: MINUTE,
+		});
+		// It answers the first at once, and slowly, so the next two come meanwhile.
+		await sendToBot(
+			client,
+			bot,
+			script(
+				// Code mode has no timers: it keeps busy.
+				codemode("const end = Date.now() + 4000; while (Date.now() < end) {}"),
+				say(first),
+			),
+		);
+		// Apart, the script would be answered before the second came, with
 		// nothing to repeat.
-		const reply = waitForBotMessage(client, bot, { timeoutMs: MINUTE });
 		await sendToBot(client, bot, script(say("{{match:SECOND-\\w+}}")));
 		await sendToBot(client, bot, second);
-		assert.equal(await reply, second);
+		await answered;
+		assert.equal(await repeated, second);
 	});
 
 	await t.test("hears which message a reply answers", async () => {

@@ -8,10 +8,6 @@ import { startProgress, stopProgress } from "./progress.ts";
 import { setReplyTarget } from "./reply-target.ts";
 import { whileTyping } from "./typing.ts";
 
-// What the chat sends within this long of the last message reaches the agent
-// as one input: a thought split over a few messages gets one answer.
-const DEBOUNCE_MS = 3_000;
-
 type Incoming = {
 	messageId: number;
 	/** Read as soon as it comes, e.g. a voice message's transcript. */
@@ -71,32 +67,36 @@ const submitBatch = async (batch: Incoming[]): Promise<void> => {
 	await whileTyping(() => submit(last.incoming.messageId, content));
 };
 
-// Inputs are submitted one after another, in the background, so the bot keeps
-// taking updates: a command answers at once, even while the agent is still
-// busy with an earlier message.
-let queue: Promise<void> = Promise.resolve();
+// A message reaches the agent at once; what the chat sends while the agent
+// answers waits for that answer and then reaches it as one input. Inputs go
+// in the background, so the bot keeps taking updates: a command answers at
+// once, even while the agent is busy.
 let pending: Incoming[] = [];
+let submitting = false;
 const held: string[] = [];
-let timer: NodeJS.Timeout | undefined;
 
-const flush = (): void => {
+const flush = async (): Promise<void> => {
+	if (submitting || pending.length === 0) return;
+	submitting = true;
 	const batch = pending;
 	pending = [];
-	queue = queue
-		.then(() => submitBatch(batch))
-		.catch((error) => {
-			// Only the cause: the context it comes with holds the bot's token.
-			console.error("Submitting the chat's messages failed:", error);
-		});
+	try {
+		await submitBatch(batch);
+	} catch (error) {
+		// Only the cause: the context it comes with holds the bot's token.
+		console.error("Submitting the chat's messages failed:", error);
+	} finally {
+		submitting = false;
+		void flush();
+	}
 };
 
-/** Hands what the chat sent to the agent once the chat has been quiet. */
+/** Hands what the chat sent to the agent. */
 export const receive = (incoming: Incoming): void => {
 	// Its failure is logged when the batch is read.
 	incoming.content.catch(() => {});
 	pending.push(incoming);
-	clearTimeout(timer);
-	timer = setTimeout(flush, DEBOUNCE_MS);
+	void flush();
 };
 
 /** Keeps a reaction for the agent's next input: alone it starts no turn. */
