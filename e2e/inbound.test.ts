@@ -6,7 +6,8 @@
 // replacing one that changed. The scripted model (`e2e/scripted-model.ts`)
 // answers as the agent and as the guard, so this tests the harness, not a
 // model's judgement; the source is a tool of a test MCP server
-// (`e2e/mcp/server.ts`) whose answer the test rewrites. The guard also reads
+// (`e2e/mcp/server.ts`) whose answer the test rewrites; its cursor is an
+// object, as real sources' are. The guard also reads
 // the agent's scratchpad, and the nightly retro carries the day.
 // Runs its own bot process on an empty session. Takes about a minute.
 import assert from "node:assert/strict";
@@ -66,7 +67,7 @@ const schedules = () =>
 const count = (text: string, part: string) => text.split(part).length - 1;
 
 before(async () => {
-	setUpdates({ cursor: 0, wakes: [] });
+	setUpdates({ cursor: { n: 0 }, wakes: [] });
 	server = await startHttpMcpServer({
 		WORD: "unused",
 		VISIT_FILE: path.join(directory, "visits.txt"),
@@ -165,7 +166,7 @@ test("inbound: reviews with the guard's matters; sources", {
 	});
 
 	await t.test("a source's notes reach the agent without a reply", async () => {
-		setUpdates({ cursor: 1, notes: [note], wakes: [] });
+		setUpdates({ cursor: { n: 1 }, notes: [note], wakes: [] });
 		await expectNoBotMessage(client, bot, {
 			matches: (text) => text.includes(note),
 			durationMs: 10 * SECOND,
@@ -183,14 +184,14 @@ test("inbound: reviews with the guard's matters; sources", {
 		"a source keeps exactly its wake-ups, replacing a changed one",
 		async () => {
 			setUpdates({
-				cursor: 2,
+				cursor: { n: 2 },
 				wakes: [{ key: "a", at: FAR, prompt: `FIRST-${runId}` }],
 			});
 			await new Promise((resolve) => setTimeout(resolve, 8 * SECOND));
 			assert.equal(count(await schedules(), `FIRST-${runId}`), 1);
 
 			setUpdates({
-				cursor: 3,
+				cursor: { n: 3 },
 				wakes: [{ key: "a", at: FAR, prompt: `SECOND-${runId}` }],
 			});
 			await new Promise((resolve) => setTimeout(resolve, 8 * SECOND));

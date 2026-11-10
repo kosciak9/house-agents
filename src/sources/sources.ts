@@ -79,13 +79,15 @@ const poll = async ({
 	};
 	try {
 		const now = Date.now();
-		const cursor =
-			(await conversation.commit(
-				async (tx) => (await tx.doc(Cursors, conversation.id)).cursors[name],
-				BACKGROUND_CONTEXT,
-			)) ?? null;
+		// A plain copy: the document's value does not outlive its commit.
+		const cursor = await conversation.commit(async (tx) => {
+			const value = (await tx.doc(Cursors, conversation.id)).cursors[name];
+			return value === undefined
+				? null
+				: (JSON.parse(JSON.stringify(value)) as JsonValue);
+		}, BACKGROUND_CONTEXT);
 		const update = await source.poll({
-			cursor: cursor === null ? null : structuredClone(cursor),
+			cursor,
 			now,
 			call: async (server, tool, args) => {
 				const result = await (await connect(server)).callTool({
