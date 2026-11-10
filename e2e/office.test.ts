@@ -2,7 +2,8 @@
 // code mode and come back as real files. An uploaded XLSX returns with typed
 // literals, working formulas, structural edits and styles. A background
 // general subagent edits its own copy of the immutable source; the parent
-// delivers its export once the subagent reports back. Uploaded DOCX and PPTX
+// delivers its export once the subagent reports back; subagents started in
+// one turn report back together. Uploaded DOCX and PPTX
 // likewise return real edited bytes, retaining fragmented Word formatting,
 // tables and slide layout, and the originals return byte-for-byte intact.
 // The scripted model (`e2e/scripted-model.ts`) makes the tool calls, so this
@@ -35,6 +36,7 @@ import {
 	botUsername,
 	connectTestUser,
 	sendAndWaitForDocument,
+	sendAndWaitForReply,
 	sendDocumentAndWaitForReply,
 } from "./telegram/client.ts";
 
@@ -304,6 +306,31 @@ return "SOURCE=" + cells[0].value + "," + cells[1].value;`,
 			assert.equal(edited.getCellValue(0, 2, 8), null);
 		},
 	);
+
+	await t.test("subagents started in one turn report together", async () => {
+		// Computed, so only their reports carry their answers.
+		const part = (letter: string) =>
+			script(
+				codemode(`return "BATCH" + "-${letter}-" + ${quoted(runId)};`),
+				say("{{result}}"),
+			);
+		const reply = await sendAndWaitForReply(
+			client,
+			bot,
+			script(
+				call("subagent", { agent: "general", tasks: [part("A")] }),
+				call("subagent", { agent: "general", tasks: [part("B")] }),
+				say(`BATCH-STARTED-${runId}`),
+				// Once, when both have answered.
+				say("{{match:BATCH-A-[A-Z0-9]+}} {{match:BATCH-B-[A-Z0-9]+}}"),
+			),
+			{
+				matches: (text) => /BATCH-[AB]-/.test(text),
+				timeoutMs: 2 * MINUTE,
+			},
+		);
+		assert.equal(reply, `BATCH-A-${runId} BATCH-B-${runId}`);
+	});
 
 	await t.test(
 		"edits an uploaded DOCX across formatted runs and a table cell, preserving the original",

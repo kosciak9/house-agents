@@ -96,6 +96,19 @@ export type Reviews = {
 	};
 };
 
+/**
+ * A nightly retro: the harness gives the agent the last day of its
+ * conversation to learn from, e.g. to write its skills.
+ */
+export type Retro = {
+	/** 5-field cron, or 6 with a leading second. */
+	cron: string;
+	/** IANA time zone of `cron`; the process's by default. */
+	timeZone?: string;
+	/** The prompt, which the day follows in a <day> block. */
+	prompt: string;
+};
+
 /** What a source's `poll` gets. */
 export type SourceRead = {
 	/**
@@ -188,6 +201,8 @@ export type Config = {
 	subagents?: Record<string, Subagent>;
 	/** When the harness wakes the agent to review, with the guard's list. */
 	reviews?: Reviews;
+	/** When the harness gives the agent its day for a retro. */
+	retro?: Retro;
 	/**
 	 * What the harness reads on its own, by name: new items reach the
 	 * conversation without waking the agent, and the source's wake-ups wake it.
@@ -312,7 +327,18 @@ export const useConfig = (value: Config): void => {
 			"config.compaction needs a valid cron and, if given, an IANA timeZone",
 		);
 	}
-	const { reviews, sources } = value;
+	const { reviews, retro, sources } = value;
+	if (
+		retro !== undefined &&
+		(typeof retro?.cron !== "string" ||
+			!isValidCompaction(retro) ||
+			typeof retro.prompt !== "string" ||
+			!retro.prompt)
+	) {
+		throw new Error(
+			"config.retro needs a valid cron and timeZone, and a prompt",
+		);
+	}
 	if (
 		reviews !== undefined &&
 		(typeof reviews?.cron !== "string" ||

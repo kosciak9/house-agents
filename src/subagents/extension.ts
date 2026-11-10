@@ -8,11 +8,14 @@ import {
 	defineExtension,
 	defineTask,
 	defineTool,
+	type EntryId,
 	type Extension,
 	type Registry,
 	ROOT_CONVERSATION_ID,
 	section,
 	type TaskId,
+	type TaskRuntime,
+	type ToolExecutionApi,
 } from "@earendil-works/pi-durable";
 
 import { localTools } from "../agent/local-tools.ts";
@@ -71,9 +74,12 @@ export const rootExtensions = (registry: Registry): Extension[] =>
 		.installed()
 		.filter((extension) => !extension.name.startsWith(RUN_EXTENSION));
 
-/** The root's extensions without its codemode: a worker brings its own. */
+// A worker brings its own codemode, and the scratchpad is the agent's own.
+const NOT_FOR_WORKERS = new Set(["codemode", "scratchpad"]);
+
+/** The root's extensions a worker gets. */
 export const generalExtensions = (registry: Registry): Extension[] =>
-	rootExtensions(registry).filter(({ name }) => name !== "codemode");
+	rootExtensions(registry).filter(({ name }) => !NOT_FOR_WORKERS.has(name));
 
 /**
  * A worker's own extension, with its codemode over `tools`; installed again,
@@ -108,7 +114,25 @@ export const createGeneralRunExtension = (
 type JobInput = {
 	agent: string;
 	tasks: string[];
+	/** The root's turn that started it: its jobs report to the root together. */
+	batch?: string;
 };
+
+type Part = { agent: string; tasks: string[]; answers: string[] };
+
+// The root's jobs by the turn that started them, with each one's answers once
+// it has them; the last to answer reports for all, so every task started in
+// one turn comes back in one report.
+const Batches = defineDoc<{
+	batches: Record<string, Record<string, Part | null>>;
+}>({
+	kind: "subagent.batches",
+	version: 1,
+	scope: "conversation",
+	history: "latest",
+	fork: "initial",
+	initial: () => ({ batches: {} }),
+});
 
 type JobState =
 	| { phase: "start" }
@@ -152,6 +176,46 @@ const report = (
 		),
 	].join("\n\n");
 
+// What the root hears once every job of a turn has answered.
+const rootReport = (parts: readonly Part[]): string =>
+	[
+		"Every subagent you started has answered; they are done and gone. " +
+			"The user has not seen their answers: reply to the user with what they asked for, from these answers, or NO_REPLY if they leave nothing worth telling.",
+		...parts.flatMap(({ agent, tasks, answers }) =>
+			tasks.map(
+				(task, index) =>
+					`<task agent="${agent}">\n${task}\n</task>\n<answer>\n${answers[index]}\n</answer>`,
+			),
+		),
+	].join("\n\n");
+
+// The input that started the root's turn which made the tool call `taskId`:
+// the newest of the root's inputs before the call's assistant message.
+const turnOf = async (
+	api: { taskId: TaskId; getTask: ToolExecutionApi["getTask"] },
+	context: Context,
+): Promise<string | undefined> => {
+	const call = await api.getTask(api.taskId, context);
+	const assistant = (call?.input as { assistant?: EntryId } | undefined)
+		?.assistant;
+	if (assistant === undefined) return undefined;
+	// Imported late: the harness itself is built from these extensions.
+	const { root } = await import("../agent/harness.ts");
+	let cursor: Parameters<typeof root.entries>[2];
+	do {
+		const page = await root.entries(
+			{ maxEntryId: assistant },
+			100,
+			cursor,
+			context,
+		);
+		const input = page.items.find((entry) => entry.kind === "pi.user");
+		if (input) return input.id.toString();
+		cursor = page.next;
+	} while (cursor !== undefined);
+	return undefined;
+};
+
 export const createSubagentExtension = ({
 	registry,
 	subagents,
@@ -188,6 +252,81 @@ export const createSubagentExtension = ({
 		if (!specialist) throw new Error(`No subagent "${name}"`);
 		return specialist;
 	};
+	// The root hears a job's answers with those of the rest of its batch, once
+	// the last of them answers; a retried phase reports once (the request id),
+	// and not at all once its batch is gone.
+	const reportToRoot = async (
+		task: { id: TaskId; input: JobInput },
+		runtime: TaskRuntime<JobInput, JobState, string | null, object>,
+		part: Part,
+		context: Context,
+	): Promise<void> => {
+		const { batch } = task.input;
+		let parts: Part[] | undefined = batch === undefined ? [part] : undefined;
+		let reported: string[] = [];
+		if (batch !== undefined) {
+			// A task's commit returns its next state; the parts come out aside.
+			await runtime.commit(async (tx) => {
+				const { batches } = await tx.doc(Batches, runtime.conversationId);
+				const jobs = batches[batch];
+				if (jobs === undefined) return undefined;
+				// A retried phase or an abort keeps the answers already given.
+				jobs[task.id] ??= part;
+				const all = Object.values(jobs);
+				if (all.every((job) => job !== null)) {
+					parts = JSON.parse(JSON.stringify(all)) as Part[];
+					reported = Object.keys(jobs);
+				}
+				return undefined;
+			}, context);
+		}
+		if (parts === undefined) return;
+		const agent = await runtime.conversation(runtime.conversationId, context);
+		await agent?.submit(
+			{
+				type: "input",
+				content: rootReport(parts),
+				whenBusy: "followUp",
+				requestId:
+					batch === undefined
+						? `subagent:${task.id}`
+						: `subagent:${batch}:${task.id}`,
+			},
+			context,
+		);
+		if (batch !== undefined) {
+			// A job started in the turn meanwhile stays, to report on its own.
+			await runtime.commit(async (tx) => {
+				const { batches } = await tx.doc(Batches, runtime.conversationId);
+				const jobs = batches[batch];
+				if (jobs === undefined) return undefined;
+				for (const id of reported) delete jobs[id];
+				if (Object.keys(jobs).length === 0) delete batches[batch];
+				return undefined;
+			}, context);
+		}
+	};
+
+	// A job that cannot run answers every task with its failure, so that its
+	// batch still reports.
+	const fail = async (
+		task: { id: TaskId; input: JobInput },
+		runtime: TaskRuntime<JobInput, JobState, string | null, object>,
+		error: unknown,
+		context: Context,
+	): Promise<void> => {
+		if (runtime.signal.aborted) throw error;
+		const { agent, tasks } = task.input;
+		const answers = tasks.map(() => `(failed: ${errorMessage(error)})`);
+		const isRoot = runtime.conversationId === ROOT_CONVERSATION_ID;
+		if (isRoot)
+			await reportToRoot(task, runtime, { agent, tasks, answers }, context);
+		await runtime.commit(
+			() => completed(report(agent, tasks, answers, isRoot)),
+			context,
+		);
+	};
+
 	const JobTask = defineTask<JobInput, JobState, string | null>({
 		name: "subagent.job",
 		version: 1,
@@ -196,7 +335,13 @@ export const createSubagentExtension = ({
 
 		phases: {
 			start: async (task, runtime, context) => {
-				const subagent = agentConfig(task.input.agent);
+				let subagent: ReturnType<typeof agentConfig>;
+				try {
+					subagent = agentConfig(task.input.agent);
+				} catch (error) {
+					await fail(task, runtime, error, context);
+					return;
+				}
 
 				await runtime.commit(async (tx) => {
 					const conversations: ConversationId[] = [];
@@ -223,7 +368,13 @@ export const createSubagentExtension = ({
 			},
 
 			run: async (task, runtime, context) => {
-				const subagent = agentConfig(task.input.agent);
+				let subagent: ReturnType<typeof agentConfig>;
+				try {
+					subagent = agentConfig(task.input.agent);
+				} catch (error) {
+					await fail(task, runtime, error, context);
+					return;
+				}
 				const specialist = subagents.get(task.input.agent);
 
 				// Every run opens its own connections, and a restart reconnects them.
@@ -315,18 +466,10 @@ export const createSubagentExtension = ({
 					isRoot,
 				);
 				if (isRoot) {
-					const agent = await runtime.conversation(
-						runtime.conversationId,
-						context,
-					);
-					// The request id keeps a run retried after a crash from reporting twice.
-					await agent?.submit(
-						{
-							type: "input",
-							content: result,
-							whenBusy: "followUp",
-							requestId: `subagent:${task.id}`,
-						},
+					await reportToRoot(
+						task,
+						runtime,
+						{ agent: task.input.agent, tasks: task.input.tasks, answers },
 						context,
 					);
 				}
@@ -336,7 +479,18 @@ export const createSubagentExtension = ({
 			},
 		},
 
-		abort: (_task, runtime, context) => runtime.commit(() => aborted, context),
+		abort: async (task, runtime, context) => {
+			// Its batch must not wait for it forever; a job of its own just stops.
+			if (
+				runtime.conversationId === ROOT_CONVERSATION_ID &&
+				task.input.batch !== undefined
+			) {
+				const { agent, tasks } = task.input;
+				const answers = tasks.map(() => "(stopped before answering)");
+				await reportToRoot(task, runtime, { agent, tasks, answers }, context);
+			}
+			await runtime.commit(() => aborted, context);
+		},
 	});
 
 	const names = ["general", ...subagents.keys()];
@@ -366,18 +520,26 @@ export const createSubagentExtension = ({
 			}),
 		}),
 		execute: async (args, api, context: Context) => {
+			const batch =
+				api.conversationId === ROOT_CONVERSATION_ID
+					? await turnOf(api, context)
+					: undefined;
 			const job = await api.commit(async (tx) => {
 				const call = await tx.doc(CallDoc, api.taskId);
 				if (call.job !== null) return call.job;
 				call.job = await tx.createTask(
 					JobTask,
-					{ agent: args.agent, tasks: args.tasks },
+					{ agent: args.agent, tasks: args.tasks, ...(batch && { batch }) },
 					{
 						conversationId: api.conversationId,
 						ownership: { kind: "conversation" },
 						background: true,
 					},
 				);
+				if (batch !== undefined) {
+					const { batches } = await tx.doc(Batches, api.conversationId);
+					batches[batch] = { ...batches[batch], [call.job]: null };
+				}
 				return call.job;
 			}, context);
 			// A child must not report a delegation acknowledgement as its final
