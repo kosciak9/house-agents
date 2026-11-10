@@ -8,7 +8,8 @@
 // model's judgement; the source is a tool of a test MCP server
 // (`e2e/mcp/server.ts`) whose answer the test rewrites; its cursor is an
 // object, as real sources' are. The guard also reads
-// the agent's scratchpad, and the nightly retro carries the day.
+// the agent's scratchpad, and the nightly retro carries the day and the
+// tasks its subagents did, each with the worker model it picked.
 // Runs its own bot process on an empty session. Takes about a minute.
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -38,6 +39,9 @@ const retro = `RETRO-${runId}`;
 const pad = `PAD-${runId}`;
 const matter = `GUARD-${runId}`;
 const note = `NOTE-${runId}`;
+// The intent of the test's task: `e2e.<run>`, as the log lowercases it.
+const job = "e2e";
+const intent = `${job}.${runId.toLowerCase()}`;
 const apiKey = `key-${runId}`;
 // Far ahead, so no wake-up of this test ever fires.
 const FAR = Date.parse("2099-06-01T10:00:00Z");
@@ -103,11 +107,22 @@ before(async () => {
 			// Apart from the reviews: one firing would hide the other.
 			cron: "15 * * * * *",
 			timeZone: "Europe/Warsaw",
-			// A line of the day, which only the retro's <day> holds.
-			prompt: script(say(`${retro}{{match:\\] user: }}`)),
+			// A line of the day, which only the retro's <day> holds, and the
+			// test's task, which only its <jobs> has as a line.
+			prompt: script(
+				say(
+					`${retro}{{match:\\] user: }} {{match:${job}\\.[a-z0-9]+ \\| strong \\| done}}`,
+				),
+			),
 		},
 		sources: {
 			updates: { server: "updates", tool: "get_updates", everyMinutes: 0.05 },
+		},
+		// A model the agent may pick for a task, logged by its name.
+		worker: {
+			models: {
+				strong: { model: SCRIPTED_MODEL, description: "For hard tasks." },
+			},
 		},
 	});
 	client = await connectTestUser();
@@ -158,9 +173,28 @@ test("inbound: reviews with the guard's matters; sources", {
 		});
 	});
 
-	await t.test("the retro carries the day", async () => {
+	await t.test("the retro carries the day and its tasks", async () => {
+		const reported = `JOB-DONE-${runId}`;
+		await sendAndWaitForReply(
+			client,
+			bot,
+			script(
+				call("subagent", {
+					agent: "general",
+					tasks: [
+						{ intent, task: script(say("Status: done")), model: "strong" },
+					],
+				}),
+				say(`JOB-STARTED-${runId}`),
+				// Once it has reported.
+				say(reported),
+			),
+			{ matches: (text) => text === reported, timeoutMs: MINUTE },
+		);
 		await waitForBotMessage(client, bot, {
-			matches: (text) => text.startsWith(`${retro}] user:`),
+			matches: (text) =>
+				text.startsWith(`${retro}] user:`) &&
+				text.includes(`${intent} | strong | done`),
 			timeoutMs: 2 * MINUTE,
 		});
 	});

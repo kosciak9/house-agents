@@ -105,7 +105,10 @@ export type Retro = {
 	cron: string;
 	/** IANA time zone of `cron`; `timeZone` by default. */
 	timeZone?: string;
-	/** The prompt, which the day follows in a <day> block. */
+	/**
+	 * The prompt, which the day follows in a <day> block, and the tasks its
+	 * subagents did (intent, model, status, cost, MCP tools) in <jobs>.
+	 */
 	prompt: string;
 };
 
@@ -196,6 +199,12 @@ export type Config = {
 		prompt?: string;
 		/** The agent's `model` by default. */
 		model?: Model;
+		/**
+		 * Other models the agent may pick for a task, by name, e.g. a stronger
+		 * one for harder work; `model` answers a task that names none. The
+		 * retro learns which fits which kind of task from the day's tasks.
+		 */
+		models?: Record<string, { model: Model; description: string }>;
 		/** What it may use of the MCP servers; the agent's `mcp` by default. */
 		mcp?: McpPolicy;
 	};

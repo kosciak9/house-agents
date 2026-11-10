@@ -11,6 +11,7 @@ import { TIME_ZONE } from "../scheduler/schedules.ts";
 import { keepWakes, type Wake } from "../scheduler/wakes.ts";
 import { fromWall, toWall } from "../scheduler/wall.ts";
 import { Scratchpad } from "../scratchpad/scratchpad.ts";
+import { type Job, Log } from "../subagents/log.ts";
 
 // At every review moment the harness wakes the agent with the review prompt.
 // Before it, the guard reads the last day of the conversation, across
@@ -48,6 +49,16 @@ const clip = (text: string): string =>
 // not the sources' notes nor bookkeeping entries.
 const SAID = new Set(["pi.user", "pi.assistant"]);
 
+// A delegated task, or an older call's bare text.
+const delegation = (task: unknown): string => {
+	if (typeof task === "string") return task;
+	const { intent, task: text } = (task ?? {}) as {
+		intent?: unknown;
+		task?: unknown;
+	};
+	return `${String(intent ?? "")}: ${String(text ?? "")}`;
+};
+
 // Who said what, one line each; tool calls other than delegations are left out.
 const linesOf = (message: Message, timeZone: string): string[] => {
 	const at = `[${toWall(message.timestamp, timeZone)}]`;
@@ -68,7 +79,11 @@ const linesOf = (message: Message, timeZone: string): string[] => {
 			part.type === "toolCall" && part.name === "subagent"
 				? [
 						`${at} agent delegated: ${clip(
-							[part.arguments.tasks ?? []].flat().join(" | "),
+							[part.arguments.tasks ?? []]
+								.flat()
+								// A task, or an older call's bare text.
+								.map(delegation)
+								.join(" | "),
 						)}`,
 					]
 				: [],
@@ -220,19 +235,44 @@ export const startReviews = (
 		review(conversation, reviews, zoneOf(reviews.timeZone), scheduledFor),
 	);
 
-/** Gives `conversation` its last day for a retro at every firing of `retro.cron`. */
+// One line per task of the day, for the retro to learn which model fits
+// which kind of task.
+const jobLine = (job: Job, timeZone: string): string =>
+	[
+		`[${toWall(job.at, timeZone)}] ${job.intent || "(no intent)"}`,
+		job.agent === "general" ? job.model : job.agent,
+		job.status ?? "no status",
+		`$${job.cost.toFixed(4)}`,
+		`${job.seconds}s`,
+		job.tools.length > 0 ? job.tools.join(", ") : "no MCP tools",
+	].join(" | ");
+
+/**
+ * Gives `conversation` its last day for a retro at every firing of
+ * `retro.cron`: what was said, in <day>, and the tasks its subagents did, in
+ * <jobs>.
+ */
 export const startRetro = (conversation: Conversation, retro: Retro): void =>
 	startRoutine("retro", retro, async (scheduledFor) => {
-		const lines = await transcript(
-			conversation,
-			Date.now() - DAY,
-			zoneOf(retro.timeZone),
+		const since = Date.now() - DAY;
+		const timeZone = zoneOf(retro.timeZone);
+		const lines = await transcript(conversation, since, timeZone);
+		const jobs = await conversation.commit(
+			async (tx) =>
+				(await tx.doc(Log, conversation.id)).jobs
+					.filter((job) => job.at >= since)
+					.map((job) => jobLine(job, timeZone)),
+			BACKGROUND_CONTEXT,
 		);
+		const day = lines || "(empty)";
+		const done = jobs.join("\n") || "(none)";
 		await conversation.submit(
 			{
 				type: "input",
 				content: scheduledInput(
-					`${retro.prompt}\n\n<day>\n${lines || "(empty)"}\n</day>`,
+					`${retro.prompt}\n\n<day>\n${day}\n</day>\n\n<jobs>\n` +
+						"The tasks your subagents did: when | intent | model | status | cost | time | MCP tools.\n" +
+						`${done}\n</jobs>`,
 				),
 				whenBusy: "followUp",
 				requestId: `retro:${scheduledFor}`,

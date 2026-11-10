@@ -26,7 +26,17 @@ import { connectLightpanda } from "../lightpanda/connect.ts";
 import { type Connection, connectServers } from "../mcp/client.ts";
 import { type ServerConfig, workerPolicy } from "../mcp/config.ts";
 import type { TokenStore } from "../mcp/oauth.ts";
-import { general, type SubagentConfig } from "./config.ts";
+import { formatTime } from "../scheduler/schedules.ts";
+import { general, type SubagentConfig, workerModels } from "./config.ts";
+import {
+	intentOf,
+	type Job,
+	Log,
+	logJobs,
+	RETRY_HOURS,
+	statusOf,
+	tooManyFailures,
+} from "./log.ts";
 
 // The agent hands tasks to subagents with one tool, `subagent`, and carries
 // on: a background task, owned by the agent's conversation but outside its
@@ -99,6 +109,8 @@ export const createGeneralRunExtension = (
 				"subagent-context",
 				() =>
 					"You are a general subagent working on a standalone task. " +
+					"Open your answer with one line, `Status: done`, " +
+					"`Status: partial` or `Status: failed`, then report. " +
 					"You read the root assistant's long-term memory and skills, " +
 					"but not its transcript; only the root writes skills. Return " +
 					"a substantive text answer to your parent, not a user-facing " +
@@ -115,11 +127,20 @@ export const createGeneralRunExtension = (
 type JobInput = {
 	agent: string;
 	tasks: string[];
+	/** Each task's kind, as the agent labels it (absent in older jobs). */
+	intents?: string[];
+	/** The worker model each general task picked, by name; `null` the default. */
+	models?: (string | null)[];
 	/** The root's turn that started it: its jobs report to the root together. */
 	batch?: string;
 };
 
-type Part = { agent: string; tasks: string[]; answers: string[] };
+type Part = {
+	agent: string;
+	tasks: string[];
+	answers: string[];
+	intents?: string[];
+};
 
 // The root's jobs by the turn that started them, with each one's answers once
 // it has them; the last to answer reports for all, so every task started in
@@ -159,6 +180,9 @@ const answerText = (message: AssistantMessage): string =>
 		.join("\n")
 		.trim();
 
+const taskTag = (agent: string, intent: string | undefined): string =>
+	`<task agent="${agent}"${intent ? ` intent="${intent.replace(/"/g, "'")}"` : ""}>`;
+
 const report = (
 	agent: string,
 	tasks: string[],
@@ -182,10 +206,10 @@ const rootReport = (parts: readonly Part[]): string =>
 	[
 		"Every subagent you started has answered; they are done and gone. " +
 			"The user has not seen their answers: reply to the user with what they asked for, from these answers, or NO_REPLY if they leave nothing worth telling.",
-		...parts.flatMap(({ agent, tasks, answers }) =>
+		...parts.flatMap(({ agent, tasks, answers, intents }) =>
 			tasks.map(
 				(task, index) =>
-					`<task agent="${agent}">\n${task}\n</task>\n<answer>\n${answers[index]}\n</answer>`,
+					`${taskTag(agent, intents?.[index])}\n${task}\n</task>\n<answer>\n${answers[index]}\n</answer>`,
 			),
 		),
 	].join("\n\n");
@@ -253,6 +277,31 @@ export const createSubagentExtension = ({
 		if (!specialist) throw new Error(`No subagent "${name}"`);
 		return specialist;
 	};
+
+	// What the root's tasks of `task` did, for the log; a nested job's are left
+	// out, its parent's task covers them.
+	const logged = async (
+		task: { id: TaskId; input: JobInput },
+		runtime: TaskRuntime<JobInput, JobState, string | null, object>,
+		outcomes: readonly Omit<Job, "id" | "intent" | "agent" | "model">[],
+		context: Context,
+	): Promise<void> => {
+		if (runtime.conversationId !== ROOT_CONVERSATION_ID) return;
+		const { agent, intents, models } = task.input;
+		await runtime.commit(async (tx) => {
+			logJobs(
+				await tx.doc(Log, runtime.conversationId),
+				outcomes.map((outcome, index) => ({
+					id: `${task.id}:${index}`,
+					intent: intents?.[index] ?? "",
+					agent,
+					model: models?.[index] ?? "default",
+					...outcome,
+				})),
+			);
+			return undefined;
+		}, context);
+	};
 	// The root hears a job's answers with those of the rest of its batch, once
 	// the last of them answers; a retried phase reports once (the request id),
 	// and not at all once its batch is gone.
@@ -317,11 +366,28 @@ export const createSubagentExtension = ({
 		context: Context,
 	): Promise<void> => {
 		if (runtime.signal.aborted) throw error;
-		const { agent, tasks } = task.input;
+		const { agent, tasks, intents } = task.input;
 		const answers = tasks.map(() => `(failed: ${errorMessage(error)})`);
 		const isRoot = runtime.conversationId === ROOT_CONVERSATION_ID;
+		await logged(
+			task,
+			runtime,
+			tasks.map(() => ({
+				at: Date.now(),
+				status: "failed",
+				cost: 0,
+				seconds: 0,
+				tools: [],
+			})),
+			context,
+		);
 		if (isRoot)
-			await reportToRoot(task, runtime, { agent, tasks, answers }, context);
+			await reportToRoot(
+				task,
+				runtime,
+				{ agent, tasks, answers, intents },
+				context,
+			);
 		await runtime.commit(
 			() => completed(report(agent, tasks, answers, isRoot)),
 			context,
@@ -346,12 +412,16 @@ export const createSubagentExtension = ({
 
 				await runtime.commit(async (tx) => {
 					const conversations: ConversationId[] = [];
-					for (const _ of task.input.tasks) {
+					for (const [index] of task.input.tasks.entries()) {
 						const { id } = await tx.createConversation({
 							ownership: { kind: "task", taskId: task.id },
 						});
 						await configure(tx, id, {
-							...modelSettings(subagent.model),
+							...modelSettings(
+								task.input.agent === "general"
+									? general(task.input.models?.[index]).model
+									: subagent.model,
+							),
 							instructions: subagent.prompt,
 							tools: null,
 							extensions:
@@ -381,10 +451,18 @@ export const createSubagentExtension = ({
 				// Every run opens its own connections, and a restart reconnects them.
 				const answer = async (
 					conversation: ConversationId,
-					prompt: string,
-				): Promise<string> => {
+					index: number,
+				): Promise<{ text: string; cost: number; tools: string[] }> => {
+					const prompt = task.input.tasks[index] ?? "";
 					const connections: Connection[] = [];
 					const run = { name: `${RUN_EXTENSION}${conversation}` };
+					// The MCP tools its scripts call, for the log.
+					const used = new Set<string>();
+					const failed = (reason: string) => ({
+						text: `(failed: ${reason})`,
+						cost: 0,
+						tools: [...used],
+					});
 					try {
 						if (specialist) {
 							connections.push(
@@ -396,7 +474,15 @@ export const createSubagentExtension = ({
 						} else {
 							connections.push(...(await connectWorkerServers()));
 						}
-						const tools = connections.flatMap(({ tools }) => tools);
+						const tools = connections.flatMap(({ tools }) =>
+							tools.map((tool) => ({
+								...tool,
+								execute: (...args: Parameters<typeof tool.execute>) => {
+									used.add(tool.name);
+									return tool.execute(...args);
+								},
+							})),
+						);
 						const extension = specialist
 							? defineExtension({
 									...run,
@@ -412,7 +498,9 @@ export const createSubagentExtension = ({
 								...(specialist
 									? {}
 									: {
-											...modelSettings(subagent.model),
+											...modelSettings(
+												general(task.input.models?.[index]).model,
+											),
 											instructions: subagent.prompt,
 										}),
 								extensions: [
@@ -436,16 +524,25 @@ export const createSubagentExtension = ({
 								context,
 							)
 						).wait(context);
-						if (settled.status !== "done") {
-							return `(failed: ${settled.reason})`;
-						}
+						if (settled.status !== "done") return failed(settled.reason);
 
 						const { messages } = await runtime.context(conversation, context);
 						const last = messages.at(-1);
-						return (last?.role === "assistant" && answerText(last)) || "";
+						return {
+							text: (last?.role === "assistant" && answerText(last)) || "",
+							cost: messages.reduce(
+								(sum, message) =>
+									sum +
+									(message.role === "assistant"
+										? (message.usage?.cost?.total ?? 0)
+										: 0),
+								0,
+							),
+							tools: [...used],
+						};
 					} catch (error) {
 						if (runtime.signal.aborted) throw error;
-						return `(failed: ${errorMessage(error)})`;
+						return failed(errorMessage(error));
 					} finally {
 						registry.uninstall(run);
 						await Promise.allSettled(connections.map(({ close }) => close()));
@@ -453,10 +550,25 @@ export const createSubagentExtension = ({
 				};
 
 				const { conversations } = task.state.checkpoint;
-				const answers = await Promise.all(
-					conversations.map((conversation, index) =>
-						answer(conversation, task.input.tasks[index] ?? ""),
-					),
+				const started = Date.now();
+				const outcomes = await Promise.all(
+					conversations.map(async (conversation, index) => {
+						const outcome = await answer(conversation, index);
+						return { ...outcome, seconds: (Date.now() - started) / 1000 };
+					}),
+				);
+				const answers = outcomes.map(({ text }) => text);
+				await logged(
+					task,
+					runtime,
+					outcomes.map(({ text, cost, tools, seconds }) => ({
+						at: Date.now(),
+						status: statusOf(text),
+						cost,
+						seconds: Math.round(seconds),
+						tools,
+					})),
+					context,
 				);
 
 				const isRoot = runtime.conversationId === ROOT_CONVERSATION_ID;
@@ -470,7 +582,12 @@ export const createSubagentExtension = ({
 					await reportToRoot(
 						task,
 						runtime,
-						{ agent: task.input.agent, tasks: task.input.tasks, answers },
+						{
+							agent: task.input.agent,
+							tasks: task.input.tasks,
+							answers,
+							intents: task.input.intents,
+						},
 						context,
 					);
 				}
@@ -486,15 +603,21 @@ export const createSubagentExtension = ({
 				runtime.conversationId === ROOT_CONVERSATION_ID &&
 				task.input.batch !== undefined
 			) {
-				const { agent, tasks } = task.input;
+				const { agent, tasks, intents } = task.input;
 				const answers = tasks.map(() => "(stopped before answering)");
-				await reportToRoot(task, runtime, { agent, tasks, answers }, context);
+				await reportToRoot(
+					task,
+					runtime,
+					{ agent, tasks, answers, intents },
+					context,
+				);
 			}
 			await runtime.commit(() => aborted, context);
 		},
 	});
 
 	const names = ["general", ...subagents.keys()];
+	const choices = [...workerModels.keys()];
 
 	const subagentTool = defineTool({
 		name: "subagent",
@@ -507,30 +630,84 @@ export const createSubagentExtension = ({
 			"tasks yourself meanwhile. When called by a subagent, this tool waits " +
 			"for nested work so it can finish before reporting to its parent. A subagent knows " +
 			"nothing of this conversation, so write each task to stand on its " +
-			"own. The subagents:\n" +
+			"own. Label each task with its intent, the kind of task it is " +
+			"(e.g. calendar.read, mail.draft), the same label for the same kind: " +
+			`after two failures of one intent within ${RETRY_HOURS} hours the ` +
+			"harness does not run a third, and you take another way (ask the " +
+			"user, or let it go). The subagents:\n" +
 			`- general: ${GENERAL_DESCRIPTION}\n` +
 			[...subagents]
 				.map(([name, { description }]) => `- ${name}: ${description}`)
-				.join("\n"),
+				.join("\n") +
+			(choices.length > 0
+				? "\nA general task may pick its worker's model (model); without " +
+					"one it runs on the default. Your retro shows how each did on " +
+					"which intent. The models:\n" +
+					[...workerModels]
+						.map(([name, { description }]) => `- ${name}: ${description}`)
+						.join("\n")
+				: ""),
 		parameters: Type.Object({
 			agent: Type.Union(names.map((name) => Type.Literal(name))),
-			tasks: Type.Array(Type.String(), {
-				minItems: 1,
-				maxItems: MAX_TASKS,
-				description: "One subagent each.",
-			}),
+			tasks: Type.Array(
+				Type.Object({
+					intent: Type.String({
+						description: "The kind of task, e.g. calendar.read.",
+					}),
+					task: Type.String({ description: "The task, standing on its own." }),
+					...(choices.length > 0 && {
+						model: Type.Optional(
+							Type.Union(
+								choices.map((name) => Type.Literal(name)),
+								{ description: "A general task's worker model." },
+							),
+						),
+					}),
+				}),
+				{
+					minItems: 1,
+					maxItems: MAX_TASKS,
+					description: "One subagent each.",
+				},
+			),
 		}),
 		execute: async (args, api, context: Context) => {
-			const batch =
-				api.conversationId === ROOT_CONVERSATION_ID
-					? await turnOf(api, context)
-					: undefined;
+			const isRoot = api.conversationId === ROOT_CONVERSATION_ID;
+			// The root's tasks of an intent that keeps failing do not start.
+			const log = isRoot
+				? await api.snapshot(Log, api.conversationId, context)
+				: undefined;
+			const now = Date.now();
+			const refused: string[] = [];
+			const tasks = args.tasks.filter(({ intent }) => {
+				const failures = tooManyFailures(log?.jobs ?? [], intent, now);
+				if (failures === undefined) return true;
+				refused.push(
+					`Not started: "${intent}" failed ${failures.length} times in the last ${RETRY_HOURS} hours (${failures.map(formatTime).join(", ")}); take another way: ask the user, or let it go.`,
+				);
+				return false;
+			});
+			if (tasks.length === 0) {
+				return { content: [{ type: "text", text: refused.join("\n") }] };
+			}
+			const batch = isRoot ? await turnOf(api, context) : undefined;
 			const job = await api.commit(async (tx) => {
 				const call = await tx.doc(CallDoc, api.taskId);
 				if (call.job !== null) return call.job;
 				call.job = await tx.createTask(
 					JobTask,
-					{ agent: args.agent, tasks: args.tasks, ...(batch && { batch }) },
+					{
+						agent: args.agent,
+						tasks: tasks.map(({ task }) => task),
+						intents: tasks.map(({ intent }) => intentOf(intent)),
+						models: tasks.map(
+							(task) =>
+								("model" in task && typeof task.model === "string"
+									? task.model
+									: null) ?? null,
+						),
+						...(batch && { batch }),
+					},
 					{
 						conversationId: api.conversationId,
 						ownership: { kind: "conversation" },
@@ -545,7 +722,7 @@ export const createSubagentExtension = ({
 			}, context);
 			// A child must not report a delegation acknowledgement as its final
 			// answer and disappear while its own background jobs are still live.
-			if (api.conversationId !== ROOT_CONVERSATION_ID) {
+			if (!isRoot) {
 				const settled = await api.waitForTask(job, context);
 				return {
 					content: [
@@ -565,11 +742,13 @@ export const createSubagentExtension = ({
 				content: [
 					{
 						type: "text",
-						text:
-							`Started ${args.tasks.length} "${args.agent}" subagent(s) in ` +
-							"the background. Their answers will come to you by themselves; " +
-							"end your turn: after a message from the user, tell them briefly " +
-							"they are on it; after a scheduled prompt, answer NO_REPLY.",
+						text: [
+							`Started ${tasks.length} "${args.agent}" subagent(s) in ` +
+								"the background. Their answers will come to you by themselves; " +
+								"end your turn: after a message from the user, tell them briefly " +
+								"they are on it; after a scheduled prompt, answer NO_REPLY.",
+							...refused,
+						].join("\n"),
 					},
 				],
 			};
