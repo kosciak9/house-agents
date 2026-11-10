@@ -10,6 +10,7 @@ import { SourcesExtension } from "../sources/sources.ts";
 import { subagents } from "../subagents/config.ts";
 import { createSubagentExtension } from "../subagents/extension.ts";
 import { publishProgress } from "../telegram/progress.ts";
+import { ClockExtension } from "./clock.ts";
 import { memory } from "./memory.ts";
 import { PromptFirstExtension } from "./prompt-first.ts";
 
@@ -17,6 +18,7 @@ import { PromptFirstExtension } from "./prompt-first.ts";
 // and each running subagent its own (`subagents/extension.ts`).
 export const registry = createRegistry();
 registry.install(PromptFirstExtension);
+registry.install(ClockExtension);
 registry.install(memory.extension);
 registry.install(EndingsExtension);
 registry.install(SchedulerExtension);

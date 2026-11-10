@@ -1,6 +1,9 @@
 import { defineDoc } from "@earendil-works/pi-durable";
 import { Cron } from "croner";
 
+import { config } from "../config.ts";
+import { toWall } from "./wall.ts";
+
 export type Schedule =
 	| {
 			type: "wakeup";
@@ -32,10 +35,12 @@ export const Schedules = defineDoc<{ schedules: Record<string, Schedule> }>({
 	initial: () => ({ schedules: {} }),
 });
 
-export const TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+/** The user's time zone: the agent reads and sets every time in it. */
+export const TIME_ZONE =
+	config().timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 const parseCron = (cron: string): Cron =>
-	new Cron(cron, { mode: "5-or-6-parts", paused: true });
+	new Cron(cron, { mode: "5-or-6-parts", paused: true, timezone: TIME_ZONE });
 
 export const isValidCron = (cron: string): boolean => {
 	try {
@@ -49,8 +54,12 @@ export const isValidCron = (cron: string): boolean => {
 export const nextCronRun = (cron: string, after: number): number | undefined =>
 	parseCron(cron).nextRun(new Date(after))?.getTime();
 
-export const formatTime = (time: number): string =>
-	new Date(time).toLocaleString("en-GB", { timeZone: TIME_ZONE });
+/** `time` as the agent reads and writes it, `YYYY-MM-DD HH:MM` in `TIME_ZONE`. */
+export const formatTime = (time: number): string => toWall(time, TIME_ZONE);
+
+/** When `schedule` fires next. */
+export const nextFire = (schedule: Schedule): number =>
+	schedule.type === "wakeup" ? schedule.fireAt : schedule.nextFireAt;
 
 export const describeSchedule = (schedule: Schedule): string =>
 	schedule.type === "wakeup"

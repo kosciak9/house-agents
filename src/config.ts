@@ -74,7 +74,7 @@ export type Subagent = {
 export type Reviews = {
 	/** 5-field cron, or 6 with a leading second. */
 	cron: string;
-	/** IANA time zone of `cron` and of the guard's times; the process's by default. */
+	/** IANA time zone of `cron` and of the guard's times; `timeZone` by default. */
 	timeZone?: string;
 	/** The prompt that wakes the agent for a review. */
 	prompt: string;
@@ -103,7 +103,7 @@ export type Reviews = {
 export type Retro = {
 	/** 5-field cron, or 6 with a leading second. */
 	cron: string;
-	/** IANA time zone of `cron`; the process's by default. */
+	/** IANA time zone of `cron`; `timeZone` by default. */
 	timeZone?: string;
 	/** The prompt, which the day follows in a <day> block. */
 	prompt: string;
@@ -161,6 +161,13 @@ export type Config = {
 	 * (`/login`), e.g. E2E's scripted model (`e2e/scripted-model.ts`).
 	 */
 	providers?: Provider[];
+	/**
+	 * The user's IANA time zone, e.g. `Europe/Warsaw`: every time the agent
+	 * reads (each message opens with its time) and sets (wake-ups, cron
+	 * schedules) is in it, as are the reviews and the retro by default. The
+	 * process's by default.
+	 */
+	timeZone?: string;
 	telegram: {
 		/** The one chat the bot serves; it ignores every other one. */
 		chatId: number;
@@ -254,6 +261,16 @@ const isValidCompaction = ({
 	}
 };
 
+const isValidZone = (timeZone: unknown): boolean => {
+	if (typeof timeZone !== "string") return false;
+	try {
+		new Intl.DateTimeFormat("en-US", { timeZone });
+		return true;
+	} catch {
+		return false;
+	}
+};
+
 let current: Config | undefined;
 
 /** Sets the config once, before any module that reads it is loaded. */
@@ -300,6 +317,9 @@ export const useConfig = (value: Config): void => {
 	}
 	if (value.providers !== undefined && !Array.isArray(value.providers)) {
 		throw new Error("config.providers must be an array");
+	}
+	if (value.timeZone !== undefined && !isValidZone(value.timeZone)) {
+		throw new Error("config.timeZone must be an IANA time zone");
 	}
 	if (!Number.isSafeInteger(value.telegram?.chatId)) {
 		throw new Error("config.telegram.chatId must be an integer chat id");

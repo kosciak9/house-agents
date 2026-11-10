@@ -4,5 +4,6 @@ export const scheduledInput = (prompt: string): string =>
 	`<scheduled>\n${prompt}\n</scheduled>`;
 
 export const SCHEDULED_INSTRUCTIONS =
-	"Prompts you scheduled (schedule_wakeup, cron_create) come back to you " +
-	"wrapped in <scheduled>...</scheduled>; the user did not send them.";
+	"Your wake-ups (wake_at, cron_create) and those the harness sets for you " +
+	"come back to you wrapped in <scheduled>...</scheduled>; the user did not " +
+	"send them.";

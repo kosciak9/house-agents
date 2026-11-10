@@ -7,9 +7,10 @@ import { agentModels, SMALL_MODEL } from "../agent/models.ts";
 import type { Retro, Reviews } from "../config.ts";
 import { ask } from "../memory/llm.ts";
 import { scheduledInput } from "../scheduler/scheduled.ts";
+import { TIME_ZONE } from "../scheduler/schedules.ts";
 import { keepWakes, type Wake } from "../scheduler/wakes.ts";
+import { fromWall, toWall } from "../scheduler/wall.ts";
 import { Scratchpad } from "../scratchpad/scratchpad.ts";
-import { fromWall, toWall } from "./wall.ts";
 
 // At every review moment the harness wakes the agent with the review prompt.
 // Before it, the guard reads the last day of the conversation, across
@@ -208,8 +209,7 @@ const startRoutine = (
 	});
 };
 
-const zoneOf = (timeZone: string | undefined): string =>
-	timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+const zoneOf = (timeZone: string | undefined): string => timeZone ?? TIME_ZONE;
 
 /** Wakes `conversation` for a review at every firing of `reviews.cron`. */
 export const startReviews = (

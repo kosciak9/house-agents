@@ -1,5 +1,6 @@
 // Wall-clock times ("YYYY-MM-DD HH:MM") in an IANA time zone, which the
-// guard reads and writes, while the process may run in another one (UTC).
+// agent and the guard read and write, while the process may run in another
+// one (UTC).
 
 const parts = (time: number, timeZone: string) => {
 	const values = Object.fromEntries(
@@ -36,11 +37,13 @@ const offset = (time: number, timeZone: string): number => {
 	);
 };
 
-/** The moment of a wall-clock time; `NaN` for anything else. */
+/** The moment of a wall-clock time, seconds optional; `NaN` for anything else. */
 export const fromWall = (wall: string, timeZone: string): number => {
-	const match = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})$/.exec(wall.trim());
+	const match = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(:\d{2})?$/.exec(
+		wall.trim(),
+	);
 	if (!match) return Number.NaN;
-	const utc = Date.parse(`${match[1]}T${match[2]}:00Z`);
+	const utc = Date.parse(`${match[1]}T${match[2]}${match[3] ?? ":00"}Z`);
 	if (Number.isNaN(utc)) return Number.NaN;
 	// The offset at the guess is right except next to a DST change.
 	const guess = utc - offset(utc, timeZone);

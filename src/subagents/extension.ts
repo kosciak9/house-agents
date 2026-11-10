@@ -74,8 +74,9 @@ export const rootExtensions = (registry: Registry): Extension[] =>
 		.installed()
 		.filter((extension) => !extension.name.startsWith(RUN_EXTENSION));
 
-// A worker brings its own codemode, and the scratchpad is the agent's own.
-const NOT_FOR_WORKERS = new Set(["codemode", "scratchpad"]);
+// A worker brings its own codemode; the scratchpad and the wake-ups are the
+// agent's own: a worker is gone before any of its wake-ups would fire.
+const NOT_FOR_WORKERS = new Set(["codemode", "scratchpad", "scheduler"]);
 
 /** The root's extensions a worker gets. */
 export const generalExtensions = (registry: Registry): Extension[] =>

@@ -72,6 +72,7 @@ export const startBot = async ({
 	reviews,
 	retro,
 	sources,
+	timeZone,
 	credentialsFile = path.resolve("state/auth.json"),
 }: {
 	stateDir?: string;
@@ -94,6 +95,8 @@ export const startBot = async ({
 	retro?: Retro;
 	/** The config's `sources`, as JSON (`E2eSource`, `e2e/agent.ts`). */
 	sources?: Record<string, E2eSource>;
+	/** The config's `timeZone`. */
+	timeZone?: string;
 	credentialsFile?: string;
 } = {}): Promise<RunningBot> => {
 	const ownDirectory =
@@ -113,6 +116,7 @@ export const startBot = async ({
 		...(reviews && { reviews }),
 		...(retro && { retro }),
 		...(sources && { sources }),
+		...(timeZone && { timeZone }),
 		stateDir: directory,
 		credentialsFile,
 	};
