@@ -9,15 +9,10 @@ import {
 	Schedules,
 	TIME_ZONE,
 } from "./schedules.ts";
-import { CronTask, WakeupTask } from "./tasks.ts";
+import { CronTask, taskOptions, WakeupTask } from "./tasks.ts";
 
 const MIN_DELAY_SECONDS = 1;
 const MAX_DELAY_SECONDS = 60 * 60;
-
-const taskOptions = {
-	ownership: { kind: "conversation" },
-	background: true,
-} as const;
 
 const text = (lines: readonly (string | undefined)[]) => ({
 	content: [

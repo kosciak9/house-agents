@@ -1,8 +1,11 @@
 import { createRegistry } from "@earendil-works/pi-durable";
+
+import { config } from "../config.ts";
 import { EndingsExtension } from "../endings/endings.ts";
 import { servers, tokens } from "../mcp/config.ts";
 import { createProgressExtension } from "../progress/extension.ts";
 import { SchedulerExtension } from "../scheduler/extension.ts";
+import { SourcesExtension } from "../sources/sources.ts";
 import { subagents } from "../subagents/config.ts";
 import { createSubagentExtension } from "../subagents/extension.ts";
 import { publishProgress } from "../telegram/progress.ts";
@@ -16,6 +19,7 @@ registry.install(PromptFirstExtension);
 registry.install(memory.extension);
 registry.install(EndingsExtension);
 registry.install(SchedulerExtension);
+if (config().sources) registry.install(SourcesExtension);
 registry.install(createProgressExtension(publishProgress));
 registry.install(
 	createSubagentExtension({

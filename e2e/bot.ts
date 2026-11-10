@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type { Model } from "../src/index.ts";
+import type { Model, Reviews } from "../src/index.ts";
+import type { E2eSource } from "./agent.ts";
 
 /** The agent's prompt; tests describe their agent here, never in the repo. */
 export const DEFAULT_PROMPT =
@@ -67,6 +68,9 @@ export const startBot = async ({
 	mcpServers = {},
 	mcp = {},
 	subagents = {},
+	smallModel,
+	reviews,
+	sources,
 	credentialsFile = path.resolve("state/auth.json"),
 }: {
 	stateDir?: string;
@@ -81,6 +85,12 @@ export const startBot = async ({
 	mcp?: Record<string, string[]>;
 	/** The config's `subagents`. */
 	subagents?: Record<string, unknown>;
+	/** The config's `smallModel`. */
+	smallModel?: Model;
+	/** The config's `reviews`. */
+	reviews?: Reviews;
+	/** The config's `sources`, as JSON (`E2eSource`, `e2e/agent.ts`). */
+	sources?: Record<string, E2eSource>;
 	credentialsFile?: string;
 } = {}): Promise<RunningBot> => {
 	const ownDirectory =
@@ -96,6 +106,9 @@ export const startBot = async ({
 		mcpServers,
 		mcp,
 		subagents,
+		...(smallModel && { smallModel }),
+		...(reviews && { reviews }),
+		...(sources && { sources }),
 		stateDir: directory,
 		credentialsFile,
 	};

@@ -5,7 +5,8 @@
 // test can tell it was called. With ATTACHMENT_DIR, `get_attachment` returns a
 // file of that directory as a binary resource, as mail servers return
 // attachments, and `receive_attachment` takes one as base64, as a draft
-// does, and answers with the size and SHA-256 it received.
+// does, and answers with the size and SHA-256 it received. With
+// UPDATES_FILE, `get_updates` returns that file's text, which a test rewrites.
 // It answers only requests with `Authorization: Bearer <API_KEY>`,
 // or, with OAUTH=1, with a token it issued as its own OAuth authorization
 // server, which approves every authorization at once.
@@ -83,6 +84,11 @@ const createMcpServer = (): Server => {
 				},
 			},
 			{
+				name: "get_updates",
+				description: "Returns what is new.",
+				inputSchema: { type: "object", properties: {} },
+			},
+			{
 				name: "record_visit",
 				description: "Records a visit under the given name.",
 				inputSchema: {
@@ -140,6 +146,10 @@ const createMcpServer = (): Server => {
 				sha256: createHash("sha256").update(data).digest("hex"),
 			};
 			return { content: [{ type: "text", text: JSON.stringify(received) }] };
+		}
+		if (request.params.name === "get_updates" && process.env.UPDATES_FILE) {
+			const text = readFileSync(process.env.UPDATES_FILE, "utf8");
+			return { content: [{ type: "text", text }] };
 		}
 		if (request.params.name === "record_visit") {
 			appendFileSync(visitFile, `${String(request.params.arguments?.name)}\n`);

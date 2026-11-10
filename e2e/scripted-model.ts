@@ -46,16 +46,16 @@ export const script = (...steps: Step[]): string =>
 const SCRIPT_LINE = /^script: (.+)$/;
 
 const textOf = (message: Message): string => {
-	if (message.role === "system") return "";
 	if (typeof message.content === "string") return message.content;
 	return message.content
 		.flatMap((part) => (part.type === "text" ? [part.text] : []))
 		.join("\n");
 };
 
-// The script of a user message, past the wrapper of a scheduled prompt.
+// The script of a user message, past the wrapper of a scheduled prompt, or of
+// a system prompt, as a helper call such as the guard's has.
 const scriptOf = (message: Message): Step[] | undefined => {
-	if (message.role !== "user") return undefined;
+	if (message.role !== "user" && message.role !== "system") return undefined;
 	const lines = textOf(message).split("\n");
 	const line = lines[0] === "<scheduled>" ? lines[1] : lines[0];
 	const match = SCRIPT_LINE.exec(line ?? "");

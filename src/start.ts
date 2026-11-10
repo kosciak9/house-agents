@@ -4,9 +4,12 @@ import { harness, root } from "./agent/harness.ts";
 import { localTools } from "./agent/local-tools.ts";
 import { compactionLimits, memory } from "./agent/memory.ts";
 import { registry } from "./agent/registry.ts";
+import { config } from "./config.ts";
 import { agentPolicy, servers, tokens } from "./mcp/config.ts";
 import { startMcp } from "./mcp/start.ts";
 import { compactWhenDue } from "./memory/keeper.ts";
+import { startReviews } from "./reviews/reviews.ts";
+import { startSources } from "./sources/sources.ts";
 import { refreshGeneralSubagents } from "./subagents/resume.ts";
 import { forwardToTelegram, startTelegram } from "./telegram/start.ts";
 
@@ -23,6 +26,10 @@ await refreshGeneralSubagents({ harness, registry }, BACKGROUND_CONTEXT);
 // Resume only once forwarding is attached, so answers of runs interrupted by
 // the last shutdown still reach the chat.
 harness.resume();
+
+const { reviews, sources } = config();
+if (reviews) startReviews(root, reviews);
+if (sources) startSources({ conversation: root, sources, servers, tokens });
 
 await memory.upgrade(root, BACKGROUND_CONTEXT);
 await compactWhenDue({

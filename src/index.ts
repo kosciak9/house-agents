@@ -5,6 +5,10 @@ export type {
 	McpPolicy,
 	McpServer,
 	Model,
+	Reviews,
+	Source,
+	SourceRead,
+	SourceUpdate,
 	Subagent,
 } from "./config.ts";
 
