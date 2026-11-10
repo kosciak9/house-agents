@@ -46,17 +46,29 @@ export const script = (...steps: Step[]): string =>
 const SCRIPT_LINE = /^script: (.+)$/;
 
 const textOf = (message: Message): string => {
+	// pi-durable's prompt sections ride on system messages beside their content.
+	const sections =
+		message.role === "system" && "sections" in message
+			? Object.values(
+					(message as { sections?: Record<string, string | null> }).sections ??
+						{},
+				).filter((text) => text !== null)
+			: [];
+	if (sections.length > 0) return [message.content, ...sections].join("\n");
 	if (typeof message.content === "string") return message.content;
 	return message.content
 		.flatMap((part) => (part.type === "text" ? [part.text] : []))
 		.join("\n");
 };
 
-// The script of a user message, past the wrapper of a scheduled prompt, or of
-// a system prompt, as a helper call such as the guard's has.
+// The time the harness opens each user message with (`src/agent/clock.ts`).
+const TIME = /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]\s*/;
+
+// The script of a user message, past its time and the wrapper of a scheduled
+// prompt, or of a system prompt, as a helper call such as the guard's has.
 const scriptOf = (message: Message): Step[] | undefined => {
 	if (message.role !== "user" && message.role !== "system") return undefined;
-	const lines = textOf(message).split("\n");
+	const lines = textOf(message).replace(TIME, "").split("\n");
 	const line = lines[0] === "<scheduled>" ? lines[1] : lines[0];
 	const match = SCRIPT_LINE.exec(line ?? "");
 	return match ? JSON.parse(match[1] as string) : undefined;
