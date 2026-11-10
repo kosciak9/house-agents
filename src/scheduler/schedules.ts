@@ -7,6 +7,9 @@ export type Schedule =
 			fireAt: number;
 			prompt: string;
 			label: string | null;
+			/** Set by the harness (`keepWakes`), not the agent: whose and which. */
+			origin?: string;
+			key?: string;
 	  }
 	| {
 			type: "cron";

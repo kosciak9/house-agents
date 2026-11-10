@@ -28,6 +28,12 @@ type CronState =
 	| { phase: "waiting"; nextFireAt: number }
 	| { phase: "firing"; scheduledFor: number };
 
+/** Schedules belong to their conversation and run in the background. */
+export const taskOptions = {
+	ownership: { kind: "conversation" },
+	background: true,
+} as const;
+
 const completed = {
 	status: "terminal",
 	outcome: { status: "completed", result: null },

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import type { JsonValue } from "@earendil-works/chord";
 import type { ModelThinkingLevel, Provider } from "@earendil-works/pi-ai";
 import { Cron } from "croner";
 
@@ -66,6 +67,71 @@ export type Subagent = {
 	lightpanda?: boolean;
 };
 
+/**
+ * Moments at which the harness wakes the agent to review its sources and the
+ * matters still open, e.g. at 9:00, 13:00 and 18:00.
+ */
+export type Reviews = {
+	/** 5-field cron, or 6 with a leading second. */
+	cron: string;
+	/** IANA time zone of `cron` and of the guard's times; the process's by default. */
+	timeZone?: string;
+	/** The prompt that wakes the agent for a review. */
+	prompt: string;
+	/**
+	 * The guard: before each review, a separate model call (`smallModel`) reads
+	 * the last day of the conversation and lists the matters still open, one
+	 * per line, each opening with the time worth coming back to it,
+	 * `YYYY-MM-DD HH:MM | ` in `timeZone`. The review prompt carries its list,
+	 * and each timed matter becomes a wake-up of the agent, replacing those of
+	 * the review before.
+	 */
+	guard?: {
+		/** Its system prompt; it must ask for the line format above. */
+		prompt: string;
+		/** Introduces its list in the review prompt. */
+		heading: string;
+		/** Opens the prompt of each wake-up it sets, before the matter. */
+		wake: string;
+	};
+};
+
+/** What a source's `poll` gets. */
+export type SourceRead = {
+	/**
+	 * Calls a tool of one of `mcpServers` and returns its text; throws when
+	 * the tool reports an error.
+	 */
+	call: (
+		server: string,
+		tool: string,
+		args: Record<string, unknown>,
+	) => Promise<string>;
+	/** What the last poll returned as its `cursor`; `null` at first. */
+	cursor: JsonValue | null;
+	now: number;
+};
+
+/** What a source's `poll` found. */
+export type SourceUpdate = {
+	/** Kept for the next poll. */
+	cursor: JsonValue;
+	/** New items, written into the conversation without waking the agent. */
+	notes?: string[];
+	/**
+	 * Every wake-up the source wants from now on, by key: the harness keeps
+	 * exactly these, replacing one whose time or prompt changed.
+	 */
+	wakes?: { key: string; at: number; prompt: string }[];
+};
+
+/** Something the harness reads on its own every few minutes, e.g. a calendar. */
+export type Source = {
+	/** 5 by default. */
+	everyMinutes?: number;
+	poll: (read: SourceRead) => Promise<SourceUpdate>;
+};
+
 export type Config = {
 	/** Who the agent is: the system prompt that opens its conversation. */
 	prompt: string;
@@ -120,6 +186,13 @@ export type Config = {
 	smallModel?: Model;
 	/** The subagents the agent may start, by name. */
 	subagents?: Record<string, Subagent>;
+	/** When the harness wakes the agent to review, with the guard's list. */
+	reviews?: Reviews;
+	/**
+	 * What the harness reads on its own, by name: new items reach the
+	 * conversation without waking the agent, and the source's wake-ups wake it.
+	 */
+	sources?: Record<string, Source>;
 	/**
 	 * When to compact the conversation on a schedule as well, e.g. `0 5 * * *`
 	 * after the agent's own night routine: each firing waits for the run in
@@ -238,6 +311,40 @@ export const useConfig = (value: Config): void => {
 		throw new Error(
 			"config.compaction needs a valid cron and, if given, an IANA timeZone",
 		);
+	}
+	const { reviews, sources } = value;
+	if (
+		reviews !== undefined &&
+		(typeof reviews?.cron !== "string" ||
+			!isValidCompaction(reviews) ||
+			typeof reviews.prompt !== "string" ||
+			!reviews.prompt ||
+			(reviews.guard !== undefined &&
+				!["prompt", "heading", "wake"].every(
+					(field) =>
+						typeof reviews.guard?.[field as "prompt"] === "string" &&
+						reviews.guard[field as "prompt"],
+				)))
+	) {
+		throw new Error(
+			"config.reviews needs a valid cron and timeZone, a prompt, and a guard with prompt, heading and wake",
+		);
+	}
+	for (const [name, source] of Object.entries(sources ?? {})) {
+		if (
+			typeof source?.poll !== "function" ||
+			(source.everyMinutes !== undefined &&
+				!(
+					typeof source.everyMinutes === "number" &&
+					source.everyMinutes > 0 &&
+					// setTimeout's limit, about 24 days.
+					source.everyMinutes * 60_000 <= 2 ** 31 - 1
+				))
+		) {
+			throw new Error(
+				`config.sources.${name} needs a poll function and a positive everyMinutes`,
+			);
+		}
 	}
 	current = value;
 };
