@@ -30,7 +30,7 @@ harness.resume();
 const { reviews, retro, sources } = config();
 if (reviews) startReviews(root, reviews);
 if (retro) startRetro(root, retro);
-if (sources) startSources({ conversation: root, sources, servers, tokens });
+startSources({ conversation: root, sources: sources ?? {}, servers, tokens });
 
 await memory.upgrade(root, BACKGROUND_CONTEXT);
 await compactWhenDue({

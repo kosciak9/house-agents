@@ -9,8 +9,11 @@
 // (`e2e/mcp/server.ts`) whose answer the test rewrites; its cursor is an
 // object, as real sources' are. The guard also reads
 // the agent's scratchpad, and the nightly retro carries the day and the
-// tasks its subagents did, each with the worker model it picked.
-// Runs its own bot process on an empty session. Takes about a minute.
+// tasks its subagents did, each with the worker model it picked. A source the
+// agent's worker sets up (a script) shows its first read, wakes the agent, is
+// then read on its own like the others, and goes with its wake-ups once
+// deleted.
+// Runs its own bot process on an empty session. Takes about three minutes.
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -118,11 +121,13 @@ before(async () => {
 		sources: {
 			updates: { server: "updates", tool: "get_updates", everyMinutes: 0.05 },
 		},
-		// A model the agent may pick for a task, logged by its name.
 		worker: {
+			// A model the agent may pick for a task, logged by its name.
 			models: {
 				strong: { model: SCRIPTED_MODEL, description: "For hard tasks." },
 			},
+			// What a source the agent sets up may read.
+			mcp: { updates: ["get_updates"] },
 		},
 	});
 	client = await connectTestUser();
@@ -208,7 +213,8 @@ test("inbound: reviews with the guard's matters; sources", {
 		const reply = await sendAndWaitForReply(
 			client,
 			bot,
-			script(say(`{{match:${note}}}`)),
+			// Only the note has it at a line's start, not this script.
+			script(say(`{{match:(?<=\\n)${note}}}`)),
 			{ matches: isAnswer, timeoutMs: MINUTE },
 		);
 		assert.equal(reply, note);
@@ -233,6 +239,82 @@ test("inbound: reviews with the guard's matters; sources", {
 			assert.equal(count(list, `SECOND-${runId}`), 1, list);
 			assert.equal(count(list, `FIRST-${runId}`), 0, list);
 			assert.match(list, /\] updates: wakeup at /);
+		},
+	);
+
+	await t.test(
+		"a source a worker sets up wakes the agent and is read on its own until deleted",
+		async () => {
+			const mark = `OWN-${runId}-`;
+			const fired = `OWN-FIRED-${runId}`;
+			const wake = `OWN-WAKE-${runId}`;
+			// Notes the test's cursor on every read but the first, the one
+			// source_set makes (no message but such a note has the mark and a
+			// digit); wakes the agent soon, at the time its first read set, and
+			// keeps one far ahead.
+			const code = [
+				"const text = (await tools.updates__get_updates({})).content[0].text;",
+				"const { n } = JSON.parse(text).cursor;",
+				'const last = load("cursor");',
+				'const soon = last === null ? load("now") + 10000 : last.soon;',
+				"return {",
+				"  cursor: { soon },",
+				`  notes: last === null ? [] : [${JSON.stringify(mark)} + n],`,
+				"  wakes: [",
+				`    { key: "soon", at: soon, prompt: ${JSON.stringify(script(say(fired)))} },`,
+				`    { key: "far", at: ${FAR}, prompt: ${JSON.stringify(wake)} },`,
+				"  ],",
+				"};",
+			].join("\n");
+			const setUp = script(
+				call("source_set", {
+					name: "watch",
+					about: "The test's cursor.",
+					everyMinutes: 5,
+					servers: ["updates"],
+					code,
+				}),
+				say("{{result}}"),
+			);
+			const preview = "0 note(s), 2 wake-up(s)";
+			await sendAndWaitForReply(
+				client,
+				bot,
+				script(
+					call("subagent", {
+						agent: "general",
+						tasks: [{ intent: "e2e.source", task: setUp }],
+					}),
+					say(`SOURCE-STARTED-${runId}`),
+					// Once the worker has reported what its source_set said.
+					say("{{match:0 note\\(s\\), 2 wake-up\\(s\\)}}"),
+				),
+				{ matches: (text) => text === preview, timeoutMs: MINUTE },
+			);
+			// The agent's own wake-up, though a worker set the source.
+			await waitForBotMessage(client, bot, {
+				matches: (text) => text === fired,
+				timeoutMs: 30 * SECOND,
+			});
+
+			// Its next look over the sources (every 15 seconds) has read it.
+			await new Promise((resolve) => setTimeout(resolve, 10 * SECOND));
+			const reply = await sendAndWaitForReply(
+				client,
+				bot,
+				script(say(`{{match:${mark}\\d+}}`)),
+				{ matches: isAnswer, timeoutMs: MINUTE },
+			);
+			assert.equal(reply, `${mark}3`);
+
+			assert.equal(count(await schedules(), wake), 1);
+			await sendAndWaitForReply(
+				client,
+				bot,
+				script(call("source_delete", { name: "watch" }), say("{{result}}")),
+				{ matches: isAnswer, timeoutMs: MINUTE },
+			);
+			assert.equal(count(await schedules(), wake), 0);
 		},
 	);
 });
