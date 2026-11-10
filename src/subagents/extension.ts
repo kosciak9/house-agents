@@ -405,7 +405,8 @@ export const createSubagentExtension = ({
 						text:
 							`Started ${args.tasks.length} "${args.agent}" subagent(s) in ` +
 							"the background. Their answers will come to you by themselves; " +
-							"tell the user they are on it and end your turn.",
+							"end your turn: after a message from the user, tell them briefly " +
+							"they are on it; after a scheduled prompt, answer NO_REPLY.",
 					},
 				],
 			};
