@@ -316,7 +316,13 @@ return moved;`),
 			client,
 			bot,
 			script(
-				call("subagent", { agent: "zwiadowca", tasks: [task, task] }),
+				call("subagent", {
+					agent: "zwiadowca",
+					tasks: [
+						{ intent: "e2e.word", task },
+						{ intent: "e2e.word", task },
+					],
+				}),
 				say("started"),
 				// Once both have reported back.
 				say(`{{match:ZWIAD-${runId}}}`),

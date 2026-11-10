@@ -6,6 +6,8 @@
 // one turn report back together. Uploaded DOCX and PPTX
 // likewise return real edited bytes, retaining fragmented Word formatting,
 // tables and slide layout, and the originals return byte-for-byte intact.
+// A kind of task (its intent) whose subagents reported failure twice is not
+// started a third time.
 // The scripted model (`e2e/scripted-model.ts`) makes the tool calls, so this
 // tests the harness, not a model's judgement.
 // Runs its own bot process on an empty session.
@@ -257,7 +259,10 @@ return "SOURCE=" + cells[0].value + "," + cells[1].value;`,
 				bot,
 				{
 					text: script(
-						call("subagent", { agent: "general", tasks: [task] }),
+						call("subagent", {
+							agent: "general",
+							tasks: [{ intent: "office.edit", task }],
+						}),
 						say(started),
 						// Once the subagent has reported back.
 						codemode(
@@ -318,8 +323,14 @@ return "SOURCE=" + cells[0].value + "," + cells[1].value;`,
 			client,
 			bot,
 			script(
-				call("subagent", { agent: "general", tasks: [part("A")] }),
-				call("subagent", { agent: "general", tasks: [part("B")] }),
+				call("subagent", {
+					agent: "general",
+					tasks: [{ intent: "e2e.batch", task: part("A") }],
+				}),
+				call("subagent", {
+					agent: "general",
+					tasks: [{ intent: "e2e.batch", task: part("B") }],
+				}),
 				say(`BATCH-STARTED-${runId}`),
 				// Once, when both have answered.
 				say("{{match:BATCH-A-[A-Z0-9]+}} {{match:BATCH-B-[A-Z0-9]+}}"),
@@ -331,6 +342,43 @@ return "SOURCE=" + cells[0].value + "," + cells[1].value;`,
 		);
 		assert.equal(reply, `BATCH-A-${runId} BATCH-B-${runId}`);
 	});
+
+	await t.test(
+		"a kind of task that failed twice is not run a third time",
+		async () => {
+			const failing = {
+				intent: `e2e.failing-${runId.toLowerCase()}`,
+				task: script(say("Status: failed, nothing to find")),
+			};
+			for (const round of [1, 2]) {
+				const reported = `FAILED-${round}-${runId}`;
+				await sendAndWaitForReply(
+					client,
+					bot,
+					script(
+						call("subagent", { agent: "general", tasks: [failing] }),
+						say(`STARTED-${round}-${runId}`),
+						// Once it has reported its failure.
+						say(reported),
+					),
+					{ matches: (text) => text === reported, timeoutMs: 2 * MINUTE },
+				);
+			}
+			const refused = await sendAndWaitForReply(
+				client,
+				bot,
+				script(
+					call("subagent", { agent: "general", tasks: [failing] }),
+					say("{{result}}"),
+				),
+				{
+					matches: (text) => text.startsWith("Not started"),
+					timeoutMs: MINUTE,
+				},
+			);
+			assert.match(refused, /failed 2 times in the last 3 hours/);
+		},
+	);
 
 	await t.test(
 		"edits an uploaded DOCX across formatted runs and a table cell, preserving the original",

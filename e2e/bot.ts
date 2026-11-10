@@ -73,6 +73,7 @@ export const startBot = async ({
 	retro,
 	sources,
 	timeZone,
+	worker,
 	credentialsFile = path.resolve("state/auth.json"),
 }: {
 	stateDir?: string;
@@ -97,6 +98,8 @@ export const startBot = async ({
 	sources?: Record<string, E2eSource>;
 	/** The config's `timeZone`. */
 	timeZone?: string;
+	/** The config's `worker`. */
+	worker?: Record<string, unknown>;
 	credentialsFile?: string;
 } = {}): Promise<RunningBot> => {
 	const ownDirectory =
@@ -117,6 +120,7 @@ export const startBot = async ({
 		...(retro && { retro }),
 		...(sources && { sources }),
 		...(timeZone && { timeZone }),
+		...(worker && { worker }),
 		stateDir: directory,
 		credentialsFile,
 	};

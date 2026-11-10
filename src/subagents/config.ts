@@ -32,6 +32,35 @@ if (
 	);
 }
 
+/** The models the agent may pick for a general task, by name. */
+export const workerModels: ReadonlyMap<
+	string,
+	{ model: Model; description: string }
+> = new Map(
+	Object.entries(config().worker?.models ?? {}).map(([name, choice]) => {
+		const field = `config.worker.models.${name}`;
+		if (name === "default" || !/^[a-z0-9-]+$/.test(name)) {
+			throw new Error(
+				`${field}: a name of lowercase letters, digits and -, not "default"`,
+			);
+		}
+		if (
+			typeof choice?.model?.provider !== "string" ||
+			typeof choice.model.modelId !== "string" ||
+			!models.getModel(choice.model.provider, choice.model.modelId)
+		) {
+			throw new Error(`${field}.model is unknown`);
+		}
+		return [
+			name,
+			{
+				model: choice.model,
+				description: requiredString(choice.description, `${field}.description`),
+			},
+		];
+	}),
+);
+
 const parseSubagent = (name: string, value: unknown): SubagentConfig => {
 	const field = `config.subagents.${name}`;
 	if (name === "general") {
@@ -68,10 +97,19 @@ const parseSubagent = (name: string, value: unknown): SubagentConfig => {
 	};
 };
 
-/** The general subagent, the agent's worker: its prompt and model. */
-export const general = (): { prompt: string; model: Model } => {
+/**
+ * The general subagent, the agent's worker: its prompt and the model of a
+ * task that picked `choice`, or its default one.
+ */
+export const general = (
+	choice?: string | null,
+): { prompt: string; model: Model } => {
 	const { prompt, model, worker } = config();
-	return { prompt: worker?.prompt ?? prompt, model: worker?.model ?? model };
+	const picked = choice ? workerModels.get(choice)?.model : undefined;
+	return {
+		prompt: worker?.prompt ?? prompt,
+		model: picked ?? worker?.model ?? model,
+	};
 };
 
 export const subagents: ReadonlyMap<string, SubagentConfig> = new Map(
