@@ -40,10 +40,11 @@ const failed = (message: AssistantMessage, spec: ModelSpec<Api>): boolean =>
 	!isContextOverflow(message, spec.contextWindow);
 
 /**
- * `models` where every request to `model` that fails is made again on
- * `fallback`, in the same call: the agent, its subagents on the same model
- * and its memory all get the fallback's answer instead of the error. The next
- * request tries `model` first again.
+ * `models` where every request that fails is made again on `fallback`, in the
+ * same call: the agent, its subagents and its memory all get the fallback's
+ * answer instead of the error, whatever model they run on. Only the agent's
+ * own `model` turning to the fallback and back is announced. The next request
+ * tries its model first again.
  */
 export const withFallback = (
 	models: Models,
@@ -64,14 +65,15 @@ export const withFallback = (
 		options?: ModelsSimpleStreamOptions,
 	): AssistantMessageEventStream => {
 		const first = models.streamSimple(spec, context, options);
-		if (!isModel(spec, model)) return first;
+		if (isModel(spec, fallback)) return first;
+		const own = isModel(spec, model);
 
 		const stream = createAssistantMessageEventStream();
 		void (async () => {
 			for await (const event of first) {
 				if (event.type !== "error" || !failed(event.error, spec)) {
 					stream.push(event);
-					if (event.type === "done" && onFallback) {
+					if (event.type === "done" && own && onFallback) {
 						onFallback = false;
 						emit({ to: "model", model, fallback });
 					}
@@ -83,10 +85,10 @@ export const withFallback = (
 				}
 				const error = event.error.errorMessage ?? "error";
 				console.error(
-					`Model ${model.provider}/${model.modelId} failed (${error}); ` +
+					`Model ${spec.provider}/${spec.id} failed (${error}); ` +
 						`asking ${fallback.provider}/${fallback.modelId}`,
 				);
-				if (!onFallback) {
+				if (own && !onFallback) {
 					onFallback = true;
 					emit({ to: "fallback", model, fallback, error });
 				}
