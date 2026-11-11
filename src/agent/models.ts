@@ -31,6 +31,12 @@ const OPENROUTER_ADDED = [
 		name: "Anthropic: Claude Haiku 5.5",
 		cost: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
 	},
+	{
+		sibling: "openai/gpt-6.1-sol",
+		id: "openai/gpt-6.1-terra",
+		name: "OpenAI: GPT-6.1 Terra",
+		cost: { input: 1, output: 5, cacheRead: 0.05, cacheWrite: 0 },
+	},
 ];
 
 const openrouter = openrouterProvider();
