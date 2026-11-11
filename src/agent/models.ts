@@ -22,6 +22,28 @@ const withWindow = <M extends { id: string; contextWindow?: number }>(
 		? model
 		: { ...model, contextWindow: CONTEXT_WINDOWS[model.id] };
 
+// Models OpenRouter serves that pi-ai's catalog does not list yet: each is a
+// sibling's entry under its own id, at its own price.
+const OPENROUTER_ADDED = [
+	{
+		sibling: "anthropic/claude-sonnet-5.5",
+		id: "anthropic/claude-haiku-5.5",
+		name: "Anthropic: Claude Haiku 5.5",
+		cost: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+	},
+];
+
+const openrouter = openrouterProvider();
+const withAdded = <M extends { id: string }>(catalog: readonly M[]): M[] => [
+	...catalog,
+	...OPENROUTER_ADDED.flatMap(({ sibling, ...added }) => {
+		const entry = catalog.find((model) => model.id === sibling);
+		return entry && !catalog.some((model) => model.id === added.id)
+			? [{ ...entry, ...added }]
+			: [];
+	}),
+];
+
 // The subscriptions the agent can run on; the user logs in to each from the
 // chat (`/login`). OpenRouter takes its key from OPENROUTER_API_KEY.
 export const models = createModels({ credentials });
@@ -30,7 +52,11 @@ models.setProvider({
 	getModels: () => codex.getModels().map(withWindow),
 	getAllModels: () => (codex.getAllModels?.() ?? []).map(withWindow),
 });
-models.setProvider(openrouterProvider());
+models.setProvider({
+	...openrouter,
+	getModels: () => withAdded(openrouter.getModels()),
+	getAllModels: () => withAdded(openrouter.getAllModels?.() ?? []),
+});
 models.setProvider(xaiProvider());
 for (const provider of config().providers ?? []) models.setProvider(provider);
 
