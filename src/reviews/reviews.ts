@@ -92,8 +92,8 @@ const linesOf = (message: Message, timeZone: string): string[] => {
 	];
 };
 
-// The conversation since `since`, oldest first, whatever context it was in.
-const transcript = async (
+/** The conversation since `since`, oldest first, whatever context it was in. */
+export const transcript = async (
 	conversation: Conversation,
 	since: number,
 	timeZone: string,
@@ -191,7 +191,7 @@ const guardList = async (
 		async (tx) => (await tx.doc(Scratchpad, conversation.id)).text,
 		BACKGROUND_CONTEXT,
 	);
-	const answer = await ask(agentModels, SMALL_MODEL, {
+	const answer = await ask(agentModels, guard.model ?? SMALL_MODEL, {
 		system: guard.prompt,
 		prompt: `Now: ${toWall(now, timeZone)} (${timeZone})\n<conversation>\n${lines || "(empty)"}\n</conversation>\n\n<scratchpad>\n${scratchpad || "(empty)"}\n</scratchpad>`,
 	});
@@ -230,10 +230,17 @@ const zoneOf = (timeZone: string | undefined): string => timeZone ?? TIME_ZONE;
 export const startReviews = (
 	conversation: Conversation,
 	reviews: Reviews,
-): void =>
+): void => {
+	const model = reviews.guard?.model;
+	if (model && !agentModels.getModel(model.provider, model.modelId)) {
+		throw new Error(
+			`config.reviews.guard.model ${model.provider}/${model.modelId} is unknown`,
+		);
+	}
 	startRoutine("review", reviews, (scheduledFor) =>
 		review(conversation, reviews, zoneOf(reviews.timeZone), scheduledFor),
 	);
+};
 
 // One line per task of the day, for the retro to learn which model fits
 // which kind of task.

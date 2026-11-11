@@ -10,6 +10,7 @@ import {
 	defineTool,
 	type EntryId,
 	type Extension,
+	ProviderDoc,
 	type Registry,
 	ROOT_CONVERSATION_ID,
 	section,
@@ -28,6 +29,7 @@ import { type ServerConfig, workerPolicy } from "../mcp/config.ts";
 import type { TokenStore } from "../mcp/oauth.ts";
 import { formatTime } from "../scheduler/schedules.ts";
 import { general, type SubagentConfig, workerModels } from "./config.ts";
+import { type Dispatched, dispatch } from "./dispatcher.ts";
 import {
 	intentOf,
 	type Job,
@@ -158,7 +160,16 @@ const Batches = defineDoc<{
 
 type JobState =
 	| { phase: "start" }
-	| { phase: "run"; conversations: ConversationId[] };
+	| {
+			phase: "run";
+			conversations: ConversationId[];
+			/**
+			 * The dispatcher's briefs and model picks, which replace the agent's;
+			 * null for a task it left out.
+			 */
+			briefs?: (string | null)[];
+			models?: (string | null)[];
+	  };
 
 const completed = (result: string) =>
 	({
@@ -285,9 +296,10 @@ export const createSubagentExtension = ({
 		runtime: TaskRuntime<JobInput, JobState, string | null, object>,
 		outcomes: readonly Omit<Job, "id" | "intent" | "agent" | "model">[],
 		context: Context,
+		models: readonly (string | null)[] | undefined = task.input.models,
 	): Promise<void> => {
 		if (runtime.conversationId !== ROOT_CONVERSATION_ID) return;
-		const { agent, intents, models } = task.input;
+		const { agent, intents } = task.input;
 		await runtime.commit(async (tx) => {
 			logJobs(
 				await tx.doc(Log, runtime.conversationId),
@@ -394,6 +406,43 @@ export const createSubagentExtension = ({
 		);
 	};
 
+	// The root's general tasks go through the dispatcher, when there is one; a
+	// failure leaves them as the agent wrote them.
+	const dispatchedFor = async (
+		task: { input: JobInput },
+		runtime: TaskRuntime<JobInput, JobState, string | null, object>,
+		context: Context,
+	): Promise<Dispatched[] | undefined> => {
+		if (
+			task.input.agent !== "general" ||
+			runtime.conversationId !== ROOT_CONVERSATION_ID
+		) {
+			return undefined;
+		}
+		try {
+			// Imported late: the harness itself is built from these extensions.
+			const { root } = await import("../agent/harness.ts");
+			const dispatched = await dispatch(
+				task.input.tasks.map((text, index) => ({
+					intent: task.input.intents?.[index] ?? "",
+					task: text,
+					model: task.input.models?.[index] ?? null,
+				})),
+				root,
+				runtime,
+				context,
+			);
+			// An abort is no failure of the dispatcher: the phase stops, and runs
+			// again with it, rather than commit the tasks unbriefed.
+			runtime.signal.throwIfAborted();
+			return dispatched;
+		} catch (error) {
+			if (runtime.signal.aborted) throw error;
+			console.error("The dispatcher failed; the tasks run as asked:", error);
+			return undefined;
+		}
+	};
+
 	const JobTask = defineTask<JobInput, JobState, string | null>({
 		name: "subagent.job",
 		version: 1,
@@ -410,16 +459,26 @@ export const createSubagentExtension = ({
 					return;
 				}
 
+				const dispatched = await dispatchedFor(task, runtime, context);
+				// A task the dispatcher left out keeps the agent's pick.
+				const dispatchedPicks = dispatched?.map((answer, index) =>
+					answer ? answer.model : (task.input.models?.[index] ?? null),
+				);
+				const picks = dispatchedPicks ?? task.input.models;
 				await runtime.commit(async (tx) => {
 					const conversations: ConversationId[] = [];
 					for (const [index] of task.input.tasks.entries()) {
 						const { id } = await tx.createConversation({
 							ownership: { kind: "task", taskId: task.id },
 						});
+						// One provider session for every subagent of a kind: their
+						// prompts are alike, so they share the provider's cache.
+						(await tx.doc(ProviderDoc, id)).sessionId =
+							`subagent:${task.input.agent}`;
 						await configure(tx, id, {
 							...modelSettings(
 								task.input.agent === "general"
-									? general(task.input.models?.[index]).model
+									? general(picks?.[index]).model
 									: subagent.model,
 							),
 							instructions: subagent.prompt,
@@ -433,7 +492,15 @@ export const createSubagentExtension = ({
 					}
 					return {
 						status: "running",
-						checkpoint: { phase: "run", conversations },
+						checkpoint: {
+							phase: "run",
+							conversations,
+							...(dispatched &&
+								dispatchedPicks && {
+									briefs: dispatched.map((answer) => answer?.brief ?? null),
+									models: dispatchedPicks,
+								}),
+						},
 					};
 				}, context);
 			},
@@ -447,13 +514,20 @@ export const createSubagentExtension = ({
 					return;
 				}
 				const specialist = subagents.get(task.input.agent);
+				const { conversations, briefs } = task.state.checkpoint;
+				const picks = task.state.checkpoint.models ?? task.input.models;
 
 				// Every run opens its own connections, and a restart reconnects them.
 				const answer = async (
 					conversation: ConversationId,
 					index: number,
 				): Promise<{ text: string; cost: number; tools: string[] }> => {
-					const prompt = task.input.tasks[index] ?? "";
+					const asked = task.input.tasks[index] ?? "";
+					const brief = briefs?.[index];
+					// The agent's own words go along, so nothing it knew is lost.
+					const prompt = brief
+						? `${brief}\n\nThe task as the agent asked for it:\n<request>\n${asked}\n</request>`
+						: asked;
 					const connections: Connection[] = [];
 					const run = { name: `${RUN_EXTENSION}${conversation}` };
 					// The MCP tools its scripts call, for the log.
@@ -498,9 +572,7 @@ export const createSubagentExtension = ({
 								...(specialist
 									? {}
 									: {
-											...modelSettings(
-												general(task.input.models?.[index]).model,
-											),
+											...modelSettings(general(picks?.[index]).model),
 											instructions: subagent.prompt,
 										}),
 								extensions: [
@@ -549,7 +621,6 @@ export const createSubagentExtension = ({
 					}
 				};
 
-				const { conversations } = task.state.checkpoint;
 				const started = Date.now();
 				const outcomes = await Promise.all(
 					conversations.map(async (conversation, index) => {
@@ -569,6 +640,7 @@ export const createSubagentExtension = ({
 						tools,
 					})),
 					context,
+					picks,
 				);
 
 				const isRoot = runtime.conversationId === ROOT_CONVERSATION_ID;

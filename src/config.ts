@@ -89,6 +89,8 @@ export type Reviews = {
 	guard?: {
 		/** Its system prompt; it must ask for the line format above. */
 		prompt: string;
+		/** The model it runs on; `smallModel` by default. */
+		model?: Model;
 		/** Introduces its list in the review prompt. */
 		heading: string;
 		/** Opens the prompt of each wake-up it sets, before the matter. */
@@ -207,6 +209,19 @@ export type Config = {
 		models?: Record<string, { model: Model; description: string }>;
 		/** What it may use of the MCP servers; the agent's `mcp` by default. */
 		mcp?: McpPolicy;
+		/**
+		 * A dispatcher between the agent and its workers: before the agent's
+		 * general tasks start, one call of `model` reads what the agent asked,
+		 * the recent conversation, the memory and the skills, and picks each
+		 * task's model and writes its brief. The agent can then talk on a fast
+		 * model while a stronger one briefs its workers. Without it, a task runs
+		 * as the agent wrote it.
+		 */
+		dispatcher?: {
+			model: Model;
+			/** Its system prompt; the default model's description belongs here. */
+			prompt: string;
+		};
 	};
 	/**
 	 * A cheap model for helper work that would waste the agent's own turns,
@@ -306,6 +321,8 @@ export const useConfig = (value: Config): void => {
 	}
 	for (const [field, model] of [
 		["config.worker.model", value.worker?.model],
+		["config.worker.dispatcher.model", value.worker?.dispatcher?.model],
+		["config.reviews.guard.model", value.reviews?.guard?.model],
 		["config.smallModel", value.smallModel],
 	] as const) {
 		if (
@@ -323,6 +340,15 @@ export const useConfig = (value: Config): void => {
 				(typeof value.worker.prompt !== "string" || !value.worker.prompt)))
 	) {
 		throw new Error("config.worker must be an object with a non-empty prompt");
+	}
+	const dispatcher = value.worker?.dispatcher;
+	if (
+		dispatcher !== undefined &&
+		(typeof dispatcher?.model?.provider !== "string" ||
+			typeof dispatcher.prompt !== "string" ||
+			!dispatcher.prompt)
+	) {
+		throw new Error("config.worker.dispatcher needs a model and a prompt");
 	}
 	if (value.providers !== undefined && !Array.isArray(value.providers)) {
 		throw new Error("config.providers must be an array");
