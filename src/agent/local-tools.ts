@@ -1,7 +1,6 @@
 import type { CodemodeTool } from "@earendil-works/pi-codemode";
 
 import { fileTools } from "../files/tools.ts";
-import { skillTools } from "../memory/skills.ts";
 import { officeTools } from "../office/tools.ts";
 import { telegramTools } from "../telegram/tools.ts";
 
@@ -10,5 +9,4 @@ export const localTools: readonly CodemodeTool[] = [
 	...fileTools,
 	...officeTools,
 	...telegramTools,
-	...skillTools,
 ];
