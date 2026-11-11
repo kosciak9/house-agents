@@ -22,14 +22,13 @@ const requiredString = (value: unknown, field: string): string => {
 	return value;
 };
 
-const workerModel = config().worker?.model;
-if (
-	workerModel &&
-	!models.getModel(workerModel.provider, workerModel.modelId)
-) {
-	throw new Error(
-		`config.worker.model ${workerModel.provider}/${workerModel.modelId} is unknown`,
-	);
+for (const [field, model] of [
+	["config.worker.model", config().worker?.model],
+	["config.worker.dispatcher.model", config().worker?.dispatcher?.model],
+] as const) {
+	if (model && !models.getModel(model.provider, model.modelId)) {
+		throw new Error(`${field} ${model.provider}/${model.modelId} is unknown`);
+	}
 }
 
 /** The models the agent may pick for a general task, by name. */

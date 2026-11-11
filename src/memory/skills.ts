@@ -85,6 +85,16 @@ export const skillLines = async (
 		);
 };
 
+/** Every skill in full, without where it came from, for a model to read. */
+export const skillsText = async (
+	reader: DocumentReader,
+	context: Context,
+): Promise<string> =>
+	Object.entries(await readSkills(reader, context))
+		.sort(([a], [b]) => a.localeCompare(b))
+		.map(([name, skill]) => `## ${name}\n${skill.description}\n\n${skill.body}`)
+		.join("\n\n");
+
 /** A skill in full, as diagnostics shows it; undefined when there is none. */
 export const skillText = async (
 	reader: DocumentReader,
