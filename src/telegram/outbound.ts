@@ -6,6 +6,7 @@ import {
 	type Harness,
 	watchEvents,
 } from "@earendil-works/pi-durable";
+import { GrammyError } from "grammy";
 import type { ReactionTypeEmoji } from "grammy/types";
 
 import { type Ending, endingOf } from "../endings/endings.ts";
@@ -86,9 +87,21 @@ export const forwardAssistantMessages = async (
 ): Promise<void> => {
 	const stream = await watchEvents(harness, conversationId, BACKGROUND_CONTEXT);
 
+	// A listener that throws ends the stream for good, so an answer Telegram
+	// refuses would silence every later one.
 	stream.start(async (events) => {
 		for (const text of events.map(finalResponseText)) {
-			if (text !== undefined) await deliver(endingOf(text));
+			if (text === undefined) continue;
+			try {
+				await deliver(endingOf(text));
+			} catch (error) {
+				console.error("Delivering an answer failed:", error);
+				const why =
+					error instanceof GrammyError ? error.description : String(error);
+				await bot.api
+					.sendMessage(chatId, `⚠️ Nie udało się wysłać odpowiedzi: ${why}`)
+					.catch((error) => console.error("Telegram error:", error));
+			}
 		}
 	});
 };

@@ -105,4 +105,24 @@ test("chat: batched messages, replies and reactions", {
 			/^reacted with 🔥 to your message: "replies to/,
 		);
 	});
+
+	await t.test(
+		"an answer Telegram refuses does not stop later ones",
+		async () => {
+			// Telegram refuses a rich message this long (RICH_MESSAGE_TEXT_TOO_LONG).
+			await sendAndWaitForReply(
+				client,
+				bot,
+				script(codemode('return "x".repeat(40000);'), say("{{result}}")),
+				{ matches: (text) => /Nie udało się wysłać odpowiedzi/.test(text) },
+			);
+			const after = `AFTER-${runId}`;
+			assert.equal(
+				await sendAndWaitForReply(client, bot, script(say(after)), {
+					matches: (text) => text === after,
+				}),
+				after,
+			);
+		},
+	);
 });
