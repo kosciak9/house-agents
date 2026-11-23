@@ -43,7 +43,7 @@ All of it is in `/data/state`:
 | --- | --- | --- |
 | `session.sqlite` (with `-wal`, `-shm`) | The conversation, long-term memory, schedules and wake-ups | Everything the agent knows and has planned |
 | `auth.json` | Model provider logins (`/login`) | Log in again |
-| `mcp-oauth.json` | MCP servers' OAuth tokens (`/mcp_login`) | Log in to them again |
+| `mcp-oauth.json` | MCP servers' OAuth tokens (`/mcp_login`, `/mcp_logout`) | Log in to them again |
 
 Back up the whole directory. The database is in WAL mode, so copy it while
 the container is stopped, or with `sqlite3 session.sqlite ".backup …"`

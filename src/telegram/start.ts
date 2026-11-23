@@ -26,8 +26,10 @@ import {
 	cancelMcpLogin,
 	createLoginAnswer,
 	createLoginCommand,
+	createLogoutCommand,
 	createMcpCommand,
 	LOGIN_COMMAND,
+	LOGOUT_COMMAND,
 } from "./mcp.ts";
 import { forwardAssistantMessages } from "./outbound.ts";
 
@@ -74,6 +76,11 @@ export const startTelegram = async ({ mcp }: { mcp: Mcp }): Promise<void> => {
 			command: LOGIN_COMMAND,
 			description: "Zaloguj się do serwera MCP",
 			handlers: [createLoginCommand(mcp)],
+		},
+		{
+			command: LOGOUT_COMMAND,
+			description: "Wyloguj się z serwera MCP",
+			handlers: [createLogoutCommand(mcp)],
 		},
 		{
 			command: "cancel",
