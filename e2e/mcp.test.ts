@@ -6,6 +6,8 @@
 // /mcp_login sends the link, the user approves and sends the address the
 // browser ends up on, after which its tools work, also after a full restart
 // without asking again; the link and the address are deleted from the chat.
+// An invalid stored refresh token starts a fresh login, and /mcp_logout drops
+// the tokens and disconnects the tools until the next login.
 // /diagnostics tools lists the tools of the agent and of each subagent. Nothing of the bot is reachable from outside.
 // The agent sees the images a tool returns.
 // Original files move between servers inside a script: a server's binary
@@ -168,6 +170,9 @@ test("mcp: allowed tools work with an API key and OAuth, others are hidden", {
 }, async (t) => {
 	let link = "";
 	let redirect = "";
+	const authorizeUrl = new RegExp(
+		`${new URL(oauthServer.url).origin.replace(/\./g, "\\.")}/authorize\\?[^\\s)]+`,
+	);
 
 	await t.test(
 		"/mcp lists the servers, who uses them, and logins",
@@ -190,9 +195,6 @@ test("mcp: allowed tools work with an API key and OAuth, others are hidden", {
 	);
 
 	await t.test("/mcp_login sends the link to approve at", async () => {
-		const authorizeUrl = new RegExp(
-			`${new URL(oauthServer.url).origin.replace(/\./g, "\\.")}/authorize\\?[^\\s)]+`,
-		);
 		const reply = await sendAndWaitForReply(client, bot, "/mcp_login secure");
 		link = authorizeUrl.exec(reply)?.[0] ?? "";
 		assert.ok(link, reply);
@@ -253,6 +255,53 @@ test("mcp: allowed tools work with an API key and OAuth, others are hidden", {
 			await runningBot?.stop();
 			runningBot = await startMcpBot(SCRIPTED_MODEL);
 			assert.match(await getWord("secure"), new RegExp(oauthWord));
+		},
+	);
+
+	await t.test(
+		"login starts over when the stored refresh token is invalid",
+		async () => {
+			const revoked = await fetch(new URL("/revoke", oauthServer.url), {
+				method: "POST",
+			});
+			assert.equal(revoked.status, 200);
+
+			const loginReply = await sendAndWaitForReply(
+				client,
+				bot,
+				"/mcp_login secure",
+			);
+			link = authorizeUrl.exec(loginReply)?.[0] ?? "";
+			assert.ok(link, loginReply);
+			const response = await fetch(link, { redirect: "manual" });
+			assert.equal(response.status, 302);
+			redirect = response.headers.get("location") ?? "";
+			assert.match(redirect, /^http:\/\/localhost\/mcp-oauth\/callback\?/);
+			const reply = await sendAndWaitForReply(client, bot, redirect);
+			assert.match(reply, /Połączono z „secure”/);
+		},
+	);
+
+	await t.test(
+		"/mcp_logout forgets the tokens and disconnects the tools",
+		async () => {
+			const reply = await sendAndWaitForReply(
+				client,
+				bot,
+				"/mcp_logout secure",
+			);
+			assert.match(reply, /Wylogowano z „secure”/);
+			const list = await sendAndWaitForReply(client, bot, "/mcp");
+			assert.match(list, /^secure: 🔒 wymaga logowania;/m);
+			const tools = await sendAndWaitForReply(
+				client,
+				bot,
+				"/diagnostics tools",
+			);
+			// Only the agent's own tools follow the login; workers list their policy.
+			const agentTools = tools.split("\n\n")[0] ?? "";
+			assert.match(agentTools, /^agent:/);
+			assert.doesNotMatch(agentTools, /secure__get_word/);
 		},
 	);
 

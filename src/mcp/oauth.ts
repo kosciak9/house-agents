@@ -105,6 +105,30 @@ export const createOAuthProvider = ({
 
 		saveTokens: (tokens) => store.update(server, key, { tokens }),
 
+		invalidateCredentials: (scope) => {
+			switch (scope) {
+				case "all":
+					store.update(server, key, {
+						client: undefined,
+						tokens: undefined,
+						codeVerifier: undefined,
+					});
+					break;
+				case "client":
+					store.update(server, key, { client: undefined });
+					break;
+				case "tokens":
+					store.update(server, key, { tokens: undefined });
+					break;
+				case "verifier":
+					store.update(server, key, { codeVerifier: undefined });
+					break;
+				case "discovery":
+					// This provider does not cache discovery state.
+					break;
+			}
+		},
+
 		// Ties the pasted redirect to its flow, and so to this server.
 		state: () => randomUUID(),
 

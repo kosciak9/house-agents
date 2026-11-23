@@ -184,6 +184,7 @@ const s256 = (verifier: string): string =>
 const createAuthorizationServer = (base: () => string) => {
 	const challenges = new Map<string, string>(); // code → PKCE challenge
 	const tokens = new Set<string>();
+	const refreshTokens = new Set<string>();
 
 	const handle = async (
 		request: IncomingMessage,
@@ -202,7 +203,7 @@ const createAuthorizationServer = (base: () => string) => {
 				token_endpoint: `${base()}/token`,
 				registration_endpoint: `${base()}/register`,
 				response_types_supported: ["code"],
-				grant_types_supported: ["authorization_code"],
+				grant_types_supported: ["authorization_code", "refresh_token"],
 				code_challenge_methods_supported: ["S256"],
 				token_endpoint_auth_methods_supported: ["none"],
 			});
@@ -220,8 +221,29 @@ const createAuthorizationServer = (base: () => string) => {
 			redirect.searchParams.set("code", code);
 			redirect.searchParams.set("state", url.searchParams.get("state") ?? "");
 			response.writeHead(302, { location: redirect.href }).end();
+		} else if (url.pathname === "/revoke") {
+			// Like a revoked grant: neither the access nor the refresh token works any more.
+			tokens.clear();
+			refreshTokens.clear();
+			sendJson(response, 200, {});
 		} else if (url.pathname === "/token") {
 			const form = new URLSearchParams(await readBody(request));
+			if (form.get("grant_type") === "refresh_token") {
+				const refreshToken = form.get("refresh_token") ?? "";
+				if (!refreshTokens.has(refreshToken)) {
+					sendJson(response, 400, { error: "invalid_grant" });
+					return true;
+				}
+				const token = randomUUID();
+				tokens.add(token);
+				sendJson(response, 200, {
+					access_token: token,
+					token_type: "Bearer",
+					refresh_token: refreshToken,
+					expires_in: 3600,
+				});
+				return true;
+			}
 			const code = form.get("code") ?? "";
 			const challenge = challenges.get(code);
 			challenges.delete(code);
@@ -230,10 +252,13 @@ const createAuthorizationServer = (base: () => string) => {
 				return true;
 			}
 			const token = randomUUID();
+			const refreshToken = randomUUID();
 			tokens.add(token);
+			refreshTokens.add(refreshToken);
 			sendJson(response, 200, {
 				access_token: token,
 				token_type: "Bearer",
+				refresh_token: refreshToken,
 				expires_in: 3600,
 			});
 		} else {

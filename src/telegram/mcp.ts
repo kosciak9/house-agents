@@ -17,10 +17,12 @@ import { chatId } from "./bot.ts";
 
 // The MCP servers between the user and the chat, past the agent: `/mcp`
 // lists them, `/mcp <server>` shows its tools and who may call each, and
-// `/mcp_login <server>` logs in to one through OAuth. What may be called is
-// up to the config; the chat only shows it.
+// `/mcp_login <server>` logs in to one through OAuth. `/mcp_logout <server>`
+// forgets its tokens. What may be called is up to the config; the chat only
+// shows it.
 
 export const LOGIN_COMMAND = "mcp_login";
+export const LOGOUT_COMMAND = "mcp_logout";
 
 const AGENT = "agent";
 
@@ -70,7 +72,7 @@ const listText = (mcp: Mcp): string =>
 					}`;
 				}),
 				"",
-				`Narzędzia: /mcp <serwer>. Logowanie: /${LOGIN_COMMAND} <serwer>.`,
+				`Narzędzia: /mcp <serwer>. Logowanie: /${LOGIN_COMMAND} <serwer>. Wylogowanie: /${LOGOUT_COMMAND} <serwer>.`,
 			].join("\n");
 
 const toolsText = async (server: string, config: ServerConfig) => {
@@ -115,6 +117,28 @@ export const createMcpCommand =
 type Login = McpLogin & { server: string; linkMessageId: number };
 
 let login: Login | undefined;
+
+/** `/mcp_logout <server>` forgets its tokens, but keeps its OAuth client. */
+export const createLogoutCommand =
+	(mcp: Mcp) =>
+	async (ctx: CommandContext<Context>): Promise<void> => {
+		const server = ctx.match.trim();
+		const config = servers.get(server);
+		if (!config?.oauth) {
+			await ctx.reply(
+				`Podaj serwer logujący się przez OAuth: /${LOGOUT_COMMAND} <serwer>. Zobacz /mcp.`,
+			);
+			return;
+		}
+
+		if (login?.server === server) login = undefined;
+		tokens.update(server, config.url.href, {
+			tokens: undefined,
+			codeVerifier: undefined,
+		});
+		await mcp.reconnect(server);
+		await ctx.reply(`Wylogowano z „${server}”.`);
+	};
 
 /**
  * `/mcp_login <server>` sends the link to approve at; the next text message
